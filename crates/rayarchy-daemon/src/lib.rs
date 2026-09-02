@@ -303,7 +303,17 @@ impl Daemon {
                 match rayarchy_core::import::parse_input(input) {
                     Ok(profiles) => {
                         let ids: Vec<_> = profiles.iter().map(|p| p.id).collect();
-                        self.db.lock().await.profiles.extend(profiles);
+                        let mut db = self.db.lock().await;
+                        for profile in profiles {
+                            if !db.profiles.iter().any(|existing| {
+                                existing.server == profile.server
+                                    && existing.port == profile.port
+                                    && existing.fields == profile.fields
+                            }) {
+                                db.profiles.push(profile);
+                            }
+                        }
+                        drop(db);
                         let _ = self.save().await;
                         serde_json::json!({"profileIds":ids})
                     }
@@ -319,6 +329,13 @@ impl Daemon {
                     p.name = format!("{:?} profile", p.protocol);
                 }
                 let id = p.id;
+                if self.db.lock().await.profiles.iter().any(|existing| {
+                    existing.server == p.server
+                        && existing.port == p.port
+                        && existing.fields == p.fields
+                }) {
+                    return serde_json::json!({"error":"duplicate profile"});
+                }
                 self.db.lock().await.profiles.push(p);
                 let _ = self.save().await;
                 serde_json::json!({"profileId":id})
@@ -371,6 +388,25 @@ impl Daemon {
                     return serde_json::json!({"error":"profile not found"});
                 };
                 profile.enabled = enabled;
+                drop(db);
+                let _ = self.save().await;
+                serde_json::json!({"ok":true})
+            }
+            "profile.reorder" => {
+                let ids = params["profileIds"].as_array().cloned().unwrap_or_default();
+                let order: Vec<_> = ids
+                    .iter()
+                    .filter_map(|v| v.as_str().and_then(|s| uuid::Uuid::parse_str(s).ok()))
+                    .collect();
+                let mut db = self.db.lock().await;
+                let mut reordered = Vec::with_capacity(db.profiles.len());
+                for id in order {
+                    if let Some(pos) = db.profiles.iter().position(|p| p.id == id) {
+                        reordered.push(db.profiles.remove(pos));
+                    }
+                }
+                reordered.append(&mut db.profiles);
+                db.profiles = reordered;
                 drop(db);
                 let _ = self.save().await;
                 serde_json::json!({"ok":true})
