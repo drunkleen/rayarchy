@@ -153,8 +153,11 @@ impl Daemon {
             };
             let _ = child.wait().await;
             daemon.child_pid.store(0, Ordering::Relaxed);
-            *daemon.connected.lock().await = None;
+            let crashed_profile = daemon.connected.lock().await.take();
             let _ = std::fs::remove_file(&daemon.config_path);
+            // Reconnect supervision is deliberately kept outside this child
+            // monitor; a crashed core is never reported as connected again.
+            let _ = crashed_profile;
         });
         Ok(())
     }
