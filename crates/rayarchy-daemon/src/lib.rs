@@ -1189,6 +1189,13 @@ impl Daemon {
                 .or_insert_with(|| serde_json::json!(chrono::Utc::now().timestamp()));
         }
         db.test_history.push(result);
+        let cutoff = chrono::Utc::now().timestamp() - 30 * 24 * 60 * 60;
+        db.test_history.retain(|row| {
+            row.get("timestamp")
+                .and_then(|v| v.as_i64())
+                .map(|timestamp| timestamp >= cutoff)
+                .unwrap_or(true)
+        });
         if db.test_history.len() > 100 {
             db.test_history.remove(0);
         }
@@ -1315,6 +1322,22 @@ mod tests {
         daemon.record_test(serde_json::json!({"profileId":id,"ok":true,"timestamp":chrono::Utc::now().timestamp() - 3 * 24 * 60 * 60})).await;
         let listed = daemon.dispatch("profile.list", serde_json::json!({})).await;
         assert!(listed[0].get("lastTest").is_none());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn old_timestamped_test_history_is_pruned() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        daemon.db.lock().await.test_history.push(
+            serde_json::json!({"timestamp": chrono::Utc::now().timestamp() - 31 * 24 * 60 * 60}),
+        );
+        daemon
+            .record_test(serde_json::json!({"kind":"proxy","ok":true}))
+            .await;
+        let history = daemon.dispatch("test.history", serde_json::json!({})).await;
+        assert_eq!(history.as_array().unwrap().len(), 1);
         let _ = std::fs::remove_file(path);
     }
 
