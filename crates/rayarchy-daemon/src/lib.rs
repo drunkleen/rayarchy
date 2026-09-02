@@ -3,6 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 pub mod configgen;
 pub mod server;
+pub mod sysproxy;
 
 fn command_exists(name: &str) -> bool {
     std::env::var_os("PATH")
@@ -24,6 +25,7 @@ pub struct Daemon {
     connected: Mutex<Option<uuid::Uuid>>,
     process: Mutex<Option<tokio::process::Child>>,
     config_path: PathBuf,
+    proxy_backup: Mutex<Option<sysproxy::Backup>>,
 }
 impl Daemon {
     pub fn new(path: PathBuf) -> anyhow::Result<Arc<Self>> {
@@ -38,6 +40,7 @@ impl Daemon {
             connected: Mutex::new(None),
             process: Mutex::new(None),
             config_path: std::env::temp_dir().join("rayarchy/config.json"),
+            proxy_backup: Mutex::new(None),
         }))
     }
     async fn save(&self) -> anyhow::Result<()> {
@@ -62,6 +65,16 @@ impl Daemon {
                 db.settings.clone(),
             )
         };
+        if matches!(
+            settings.connection_mode,
+            rayarchy_core::protocol::ConnectionMode::Tun
+                | rayarchy_core::protocol::ConnectionMode::Transparent
+        ) {
+            return Err(
+                "selected mode requires the Rayarchy privileged helper and is not enabled yet"
+                    .into(),
+            );
+        }
         let core = configgen::choose_core(&profile, settings.preferred_core);
         let config = configgen::build(&profile, core, "127.0.0.1", settings.local_port);
         if let Some(parent) = self.config_path.parent() {
@@ -105,12 +118,24 @@ impl Daemon {
             let _ = self.disconnect_profile().await;
             return Err("proxy health check failed; connection was not activated".into());
         }
+        if settings.connection_mode == rayarchy_core::protocol::ConnectionMode::SystemProxy {
+            match sysproxy::apply("127.0.0.1", settings.local_port) {
+                Ok(backup) => *self.proxy_backup.lock().await = Some(backup),
+                Err(error) => {
+                    let _ = self.disconnect_profile().await;
+                    return Err(error);
+                }
+            }
+        }
         *self.connected.lock().await = Some(id);
         Ok(())
     }
 
     async fn disconnect_profile(&self) -> Result<(), String> {
         *self.connected.lock().await = None;
+        if let Some(backup) = self.proxy_backup.lock().await.take() {
+            let _ = sysproxy::restore(&backup);
+        }
         if let Some(mut child) = self.process.lock().await.take() {
             let _ = child.kill().await;
         }
@@ -287,8 +312,14 @@ impl Daemon {
             }
             "settings.update" => {
                 let value = params.get("settings").cloned().unwrap_or_default();
-                match serde_json::from_value(value) {
+                match serde_json::from_value::<Settings>(value) {
                     Ok(s) => {
+                        if s.local_port == 0 {
+                            return serde_json::json!({"error":"local port must be between 1 and 65535"});
+                        }
+                        if self.connected.lock().await.is_some() {
+                            return serde_json::json!({"error":"disconnect before changing connection settings"});
+                        }
                         self.db.lock().await.settings = s;
                         let _ = self.save().await;
                         serde_json::json!({"ok":true})
