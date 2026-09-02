@@ -1092,6 +1092,10 @@ impl Daemon {
                 let _ = self.save().await;
                 serde_json::json!({"profileId":copy.id})
             }
+            "profile.connect.cancel" => {
+                let _ = self.disconnect_profile().await;
+                serde_json::json!({"ok":true,"state":"DISCONNECTED"})
+            }
             "profile.connect" | "profile.switch" => {
                 let id = params["profileId"]
                     .as_str()
