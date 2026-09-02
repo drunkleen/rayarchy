@@ -21,6 +21,7 @@ Item {
   property bool connected: false
   property string connectionDetail: ""
   property string ipProtectionDetail: ""
+  property bool ipCheckRunning: false
   property string selectedId: ""
   property string message: ""
   property string subscriptionSummary: ""
@@ -121,8 +122,22 @@ Item {
   Component.onCompleted: root.refresh()
   Connections { target: root.rpc; function onConnectedChanged() { if (root.rpc.connected) root.refresh() } }
   Timer { interval: 2000; repeat: true; running: root.visible; triggeredOnStart: true; onTriggered: root.refreshStatus() }
+  Timer { id: ipTimer; interval: 60000; repeat: true; running: root.visible && root.connected; onTriggered: root.checkExternalIp() }
   Timer { interval: 1000; repeat: true; running: subscriptionManager.visible; triggeredOnStart: true; onTriggered: root.refreshSubscriptions() }
   Timer { id: settingsMessageTimer; interval: 3500; repeat: false; onTriggered: root.message = "" }
+  function checkExternalIp() {
+    if (!root.rpc || !root.connected || root.ipCheckRunning)
+      return;
+    root.ipCheckRunning = true;
+    root.rpc.call("test.ip", {}, function (result, error) {
+      root.ipCheckRunning = false;
+      if (error) {
+        root.ipProtectionDetail = "IP check failed";
+        return;
+      }
+      root.ipProtectionDetail = result.protected ? "External IP protected" : "External IP not changed";
+    });
+  }
   Rectangle { anchors.fill: parent; color: Color.background }
   Loader { id: subscriptionStatusLoader; sourceComponent: Component { Dialog { modal: true; title: "Subscription status"; standardButtons: Dialog.Close; contentItem: TextArea { id: statusText; width: 520; height: 300; readOnly: true; wrapMode: TextEdit.NoWrap; selectByMouse: true } } } }
   Loader { id: rawEditorLoader; sourceComponent: Component { Dialog { modal: true; title: "Raw profile configuration"; standardButtons: Dialog.Save | Dialog.Cancel; property string profileId: ""; contentItem: TextArea { id: rawText; width: 560; height: 320; wrapMode: TextEdit.NoWrap; selectByMouse: true } onAccepted: root.rpc.call("profile.raw.update", { profileId: rawEditorLoader.item.profileId, raw: rawText.text }, function(result, error) { root.message = error ? error.message : "Raw configuration saved"; if (!error) rawEditorLoader.item.close(); root.refresh() }) } } }
