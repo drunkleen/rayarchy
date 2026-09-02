@@ -416,7 +416,9 @@ impl Daemon {
                     .await
                     .map(|r| r.is_ok())
                     .unwrap_or(false);
-                    results.push(serde_json::json!({"profileId":profile.id,"name":profile.name,"host":host,"port":port,"ok":ok,"latencyMs":start.elapsed().as_millis()}));
+                    let row = serde_json::json!({"kind":"bulk-tcp","profileId":profile.id,"name":profile.name,"host":host,"port":port,"ok":ok,"latencyMs":start.elapsed().as_millis()});
+                    self.record_test(row.clone()).await;
+                    results.push(row);
                 }
                 serde_json::json!({"results":results})
             }
