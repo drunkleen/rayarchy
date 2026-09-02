@@ -594,6 +594,13 @@ Item {
             width: parent.width
             wrapMode: Text.WordWrap
         }
+        Text {
+            text: "PROFILES"
+            color: Qt.darker(Color.foreground, 1.45)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            font.bold: true
+        }
         ListView {
             width: parent.width
             height: Math.max(180, Math.min(420, root.height * 0.42))
@@ -640,6 +647,13 @@ Item {
                             elide: Text.ElideRight
                             width: parent.width
                         }
+                    }
+                    Text {
+                        text: "TOOLS"
+                        color: Qt.darker(Color.foreground, 1.45)
+                        font.family: Style.font.family
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
                     }
                     Button {
                         id: openButton
@@ -987,6 +1001,13 @@ Item {
                     }
                 }
             }
+            Text {
+                text: "TOOLS"
+                color: Qt.darker(Color.foreground, 1.45)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                font.bold: true
+            }
             Button {
                 text: "Add profile"
                 onClicked: addDialog.open()
@@ -1182,6 +1203,7 @@ Item {
         modal: true
         title: "Delete profile?"
         width: Math.min(Style.space(560), Math.max(Style.space(320), root.width - Style.space(24)))
+        height: Style.space(180)
         standardButtons: Dialog.Yes | Dialog.No
         contentItem: Text {
             text: "Delete “" + root.pendingDeleteName + "”? This cannot be undone."
@@ -1228,6 +1250,7 @@ Item {
         modal: true
         title: "Clear profile history?"
         width: Math.min(Style.space(560), Math.max(Style.space(320), root.width - Style.space(24)))
+        height: Style.space(180)
         standardButtons: Dialog.Yes | Dialog.No
         contentItem: Text {
             text: "Remove all saved diagnostics for “" + history.profileName + "”?"
@@ -1251,6 +1274,7 @@ Item {
         modal: true
         title: "Clear test history?"
         width: Math.min(Style.space(560), Math.max(Style.space(320), root.width - Style.space(24)))
+        height: Style.space(180)
         standardButtons: Dialog.Yes | Dialog.No
         contentItem: Text {
             text: "Remove all saved connectivity and health test results?"
