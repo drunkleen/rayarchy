@@ -96,7 +96,7 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                 _ => "freedom",
             };
             let settings = if matches!(profile.protocol, Protocol::Vless | Protocol::Vmess) {
-                serde_json::json!({"vnext":[{"address":server,"port":server_port,"users":[{"id":user,"encryption":"none"}]}]})
+                serde_json::json!({"vnext":[{"address":server,"port":server_port,"users":[{"id":user,"alterId":profile.fields.get("aid").and_then(|v| v.as_u64()).unwrap_or(0),"encryption":if field("encryption").is_empty() { "none" } else { field("encryption") },"flow":field("flow")}]}]})
             } else if profile.protocol == Protocol::Trojan {
                 serde_json::json!({"servers":[{"address":server,"port":server_port,"password":if password.is_empty() { user } else { password }}]})
             } else {
@@ -105,7 +105,17 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
             let mut value =
                 serde_json::json!({"protocol":protocol,"tag":"proxy","settings":settings});
             if field("security") == "tls" || field("tls") == "tls" {
-                value["streamSettings"] = serde_json::json!({"network":if field("type").is_empty() { "tcp" } else { field("type") },"security":"tls","tlsSettings":{"serverName":if field("sni").is_empty() { server.clone() } else { field("sni").to_string() }}});
+                let network = if field("type").is_empty() {
+                    "tcp"
+                } else {
+                    field("type")
+                };
+                let mut stream = serde_json::json!({"network":network,"security":"tls","tlsSettings":{"serverName":if field("sni").is_empty() { server.clone() } else { field("sni").to_string() }}});
+                if network == "ws" {
+                    stream["wsSettings"] =
+                        serde_json::json!({"path":field("path"),"headers":{"Host":field("host")}});
+                }
+                value["streamSettings"] = stream;
             }
             value
         }
@@ -231,5 +241,25 @@ mod tests {
         assert_eq!(outbound["type"], "hysteria2");
         assert_eq!(outbound["obfs"]["type"], "salamander");
         assert_eq!(outbound["tls"]["enabled"], true);
+    }
+
+    #[test]
+    fn xray_vless_includes_user_flow_and_websocket_settings() {
+        let mut profile = Profile {
+            protocol: Protocol::Vless,
+            server: Some("x.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        profile.fields = serde_json::json!({"user":"00000000-0000-0000-0000-000000000001","security":"tls","type":"ws","path":"/x","host":"x.example","flow":"xtls-rprx-vision"});
+        let config = build(&profile, Core::Xray, "127.0.0.1", 1080);
+        assert_eq!(
+            config["outbounds"][0]["settings"]["vnext"][0]["users"][0]["flow"],
+            "xtls-rprx-vision"
+        );
+        assert_eq!(
+            config["outbounds"][0]["streamSettings"]["wsSettings"]["path"],
+            "/x"
+        );
     }
 }
