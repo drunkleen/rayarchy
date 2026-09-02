@@ -6,8 +6,9 @@ async fn main() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
     let d = Daemon::new(base.join("rayarchy/state.json"))?;
+    let runtime = env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
     println!("rayarchy daemon ready");
-    let _ = d.dispatch("system.ping", serde_json::json!({})).await;
-    tokio::signal::ctrl_c().await?;
-    Ok(())
+    rayarchy_daemon::server::serve(d, runtime.join("rayarchy/rayarchy.sock")).await
 }

@@ -1,6 +1,7 @@
 use rayarchy_core::{Profile, Settings, Subscription};
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
+pub mod server;
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Database {
