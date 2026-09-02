@@ -149,9 +149,16 @@ pub fn parse_input(input: &str) -> Result<Vec<Profile>, String> {
             }
         }
     }
-    if text.starts_with('{') {
+    if text.starts_with('{') || (text.starts_with('[') && !text.contains("[Peer]")) {
         let value: serde_json::Value =
             serde_json::from_str(text).map_err(|e| format!("invalid JSON: {e}"))?;
+        if let Some(items) = value.as_array() {
+            let mut profiles = Vec::new();
+            for item in items {
+                profiles.extend(parse_input(&item.to_string())?);
+            }
+            return Ok(profiles);
+        }
         let protocol = value
             .get("protocol")
             .or_else(|| value.get("type"))
@@ -174,10 +181,97 @@ pub fn parse_input(input: &str) -> Result<Vec<Profile>, String> {
             .ok_or("JSON profile has no server")?;
         let port = value
             .get("port")
-            .and_then(|v| v.as_u64())
+            .and_then(|v| v.as_u64().or_else(|| v.as_str()?.parse().ok()))
             .ok_or("JSON profile has no port")?;
-        let raw = format!("{scheme}://profile@{server}:{port}");
-        return Ok(vec![parse_uri(&raw)?]);
+        let mut profile = Profile {
+            protocol: match scheme {
+                "ss" => Protocol::Shadowsocks,
+                "hy2" => Protocol::Hysteria2,
+                "tuic" => Protocol::Tuic,
+                "trojan" => Protocol::Trojan,
+                "vmess" => Protocol::Vmess,
+                "socks" => Protocol::Socks,
+                "http" => Protocol::Http,
+                _ => Protocol::Vless,
+            },
+            name: value
+                .get("name")
+                .or_else(|| value.get("ps"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(server)
+                .into(),
+            server: Some(server.into()),
+            port: Some(port as u16),
+            fields: value.clone(),
+            raw: Some(text.into()),
+            ..Profile::default()
+        };
+        if let Some(id) = value
+            .get("id")
+            .or_else(|| value.get("uuid"))
+            .and_then(|v| v.as_str())
+        {
+            profile.fields["user"] = serde_json::Value::String(id.into());
+        }
+        return Ok(vec![profile]);
+    }
+    if text.contains("[Peer]")
+        && text
+            .lines()
+            .any(|line| line.trim_start().starts_with("Endpoint"))
+    {
+        let endpoint = text
+            .lines()
+            .find_map(|line| {
+                line.trim()
+                    .strip_prefix("Endpoint")
+                    .and_then(|v| v.trim().strip_prefix('='))
+            })
+            .map(str::trim)
+            .ok_or("WireGuard profile has no endpoint")?;
+        let (host, port) = endpoint
+            .rsplit_once(':')
+            .ok_or("WireGuard endpoint is missing port")?;
+        let raw = format!("wireguard://profile@{host}:{port}");
+        let mut profile = parse_uri(&raw)?;
+        profile.name = "WireGuard".into();
+        profile.raw = Some(text.into());
+        return Ok(vec![profile]);
+    }
+    if text
+        .lines()
+        .any(|line| line.trim_start().starts_with("server:"))
+    {
+        let value = |key: &str| {
+            text.lines().find_map(|line| {
+                line.trim()
+                    .strip_prefix(key)
+                    .map(str::trim)
+                    .map(|v| v.trim_matches(['\"', '\'']).to_string())
+            })
+        };
+        let server = value("server:").ok_or("YAML profile has no server")?;
+        let port = value("port:")
+            .and_then(|v| v.parse().ok())
+            .ok_or("YAML profile has no port")?;
+        let protocol = match value("protocol:").as_deref().unwrap_or("vless") {
+            "vmess" => Protocol::Vmess,
+            "trojan" => Protocol::Trojan,
+            "ss" | "shadowsocks" => Protocol::Shadowsocks,
+            "socks" => Protocol::Socks,
+            "http" => Protocol::Http,
+            "hy2" | "hysteria2" => Protocol::Hysteria2,
+            "tuic" => Protocol::Tuic,
+            _ => Protocol::Vless,
+        };
+        return Ok(vec![Profile {
+            protocol,
+            name: value("name:").unwrap_or_else(|| server.clone()),
+            server: Some(server),
+            port: Some(port),
+            raw: Some(text.into()),
+            ..Profile::default()
+        }]);
     }
     let profiles: Vec<_> = text
         .lines()
@@ -240,5 +334,14 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn parses_json_arrays_yaml_and_wireguard() {
+        assert_eq!(parse_input(r#"[{"protocol":"vless","server":"a.example","port":443},{"protocol":"trojan","server":"b.example","port":"8443"}]"#).unwrap().len(), 2);
+        let yaml = "name: Office\nprotocol: trojan\nserver: vpn.example\nport: 443";
+        assert_eq!(parse_input(yaml).unwrap()[0].protocol, Protocol::Trojan);
+        let wg = "[Interface]\nPrivateKey = hidden\n[Peer]\nEndpoint = vpn.example:51820";
+        assert_eq!(parse_input(wg).unwrap()[0].protocol, Protocol::Wireguard);
     }
 }
