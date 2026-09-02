@@ -14,10 +14,10 @@
 - [x] Subscription add/edit/delete/update, auto-refresh scheduler, basic enable controls
 - [x] TCP/proxy/real latency, speed, and bounded history
 - [x] Xray and sing-box generation and basic lifecycle with health-gated activation
-- [ ] Core validation, crash recovery, reconnect backoff, and protocol-specific settings
+- [x] Core validation, crash recovery, reconnect backoff, and protocol-specific settings
 - [ ] Local, System Proxy, TUN, transparent, DNS, LAN bypass, kill switch
 - [ ] Routing rules, GeoIP/GeoSite downloads with hash verification
-- [ ] Logs, diagnostics, backup/restore, migration and security hardening
+- [x] Logs, diagnostics, backup/restore, migration and security hardening
 
 ## Release gates
 - [x] Full workspace tests and strict Clippy

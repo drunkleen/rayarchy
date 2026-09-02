@@ -48,6 +48,19 @@ Keyboard shortcuts in the panel include Ctrl/Cmd+F to focus profile search,
 Enter to connect the selected profile, and Escape to clear active filters.
 Profile rows expose descriptive accessibility labels and health status.
 
+The backend CLI can be used for scripted checks and recovery:
+
+```sh
+rayarchy profiles
+rayarchy bulk-proxy PROFILE_ID...
+rayarchy best                 # show the fastest recently verified profile
+rayarchy best --connect       # verify the selection, then connect it
+rayarchy disconnect
+```
+
+Subscription edits preserve daemon refresh history. Deleting a subscription
+requires one confirmation and also removes profiles imported from that source.
+
 After upgrading from an older Rayarchy build, rerun `setup.sh` from the cloned
 checkout. It rebuilds and installs both the daemon and CLI under
 `~/.local/bin`, then reloads the user service; this avoids accidentally
