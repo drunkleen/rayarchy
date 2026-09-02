@@ -75,6 +75,7 @@ Item {
   Timer { interval: 1000; repeat: true; running: subscriptions.visible; triggeredOnStart: true; onTriggered: root.refreshSubscriptions() }
   Rectangle { anchors.fill: parent; color: Color.background }
   Loader { id: subscriptionStatusLoader; sourceComponent: Component { Dialog { modal: true; title: "Subscription status"; standardButtons: Dialog.Close; contentItem: TextArea { id: statusText; width: 520; height: 300; readOnly: true; wrapMode: TextEdit.NoWrap; selectByMouse: true } } } }
+  Loader { id: rawEditorLoader; sourceComponent: Component { Dialog { modal: true; title: "Raw profile configuration"; standardButtons: Dialog.Save | Dialog.Cancel; property string profileId: ""; contentItem: TextArea { id: rawText; width: 560; height: 320; wrapMode: TextEdit.NoWrap; selectByMouse: true } onAccepted: root.rpc.call("profile.raw.update", { profileId: rawEditorLoader.item.profileId, raw: rawText.text }, function(result, error) { root.message = error ? error.message : "Raw configuration saved"; if (!error) rawEditorLoader.item.close(); root.refresh() }) } } }
   Connections { target: subEdit; function onClosed() { root.refreshSubscriptions() } }
   Column {
     anchors.fill: parent; anchors.margins: 18; spacing: 12
@@ -115,6 +116,7 @@ Item {
             Button { text: "Speed test"; onClicked: root.rpc.call("test.speed", {}, function(result,error) { root.message = error ? error.message : ((result.ok ? "Speed" : "Speed test failed") + " • " + Number(result.megabitsPerSecond || 0).toFixed(1) + " Mbps") }) }
             Button { text: "Test history"; onClicked: { details.close(); root.rpc.call("test.history", {}, function(result,error) { historyText.text = error ? error.message : JSON.stringify(result, null, 2); history.open() }) } }
             Button { text: "Edit"; onClicked: { details.close(); nameEdit.text=modelData.name; groupEdit.text=modelData.group || ""; serverEdit.text=modelData.server || ""; portEdit.text=String(modelData.port || ""); fieldsEdit.text=JSON.stringify(modelData.fields || {}, null, 2); edit.open() } }
+            Button { text: "Edit raw configuration"; onClicked: { rawEditorLoader.item.profileId = modelData.id; rawEditorLoader.item.contentItem.children[0].text = modelData.raw || ""; rawEditorLoader.item.open() } }
             Button { text: "Export"; onClicked: root.rpc.call("profile.export", { profileId: modelData.id }, function(result, error) { if (!error) exportText.text=result.payload || ""; exportDialog.open() }) }
             Button { text: "QR / share"; onClicked: root.rpc.call("profile.qr", { profileId: modelData.id }, function(result, error) { if (!error) qrText.text=result.payload || ""; qrDialog.open() }) }
             Button { text: "Delete"; onClicked: { details.close(); pendingDeleteId = modelData.id; pendingDeleteName = modelData.name; confirmDelete.open() } }

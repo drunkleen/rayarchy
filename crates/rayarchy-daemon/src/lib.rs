@@ -687,6 +687,23 @@ impl Daemon {
                 let _ = self.save().await;
                 serde_json::json!({"ok":true})
             }
+            "profile.raw.update" => {
+                let id = params["profileId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let raw = params["raw"].as_str().map(str::to_string);
+                let Some(raw) = raw else {
+                    return serde_json::json!({"error":"raw payload is required"});
+                };
+                let mut db = self.db.lock().await;
+                let Some(profile) = db.profiles.iter_mut().find(|p| Some(p.id) == id) else {
+                    return serde_json::json!({"error":"profile not found"});
+                };
+                profile.raw = (!raw.trim().is_empty()).then_some(raw);
+                drop(db);
+                let _ = self.save().await;
+                serde_json::json!({"ok":true})
+            }
             "profile.favorite" => {
                 let id = params["profileId"]
                     .as_str()
