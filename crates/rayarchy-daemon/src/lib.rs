@@ -428,7 +428,8 @@ impl Daemon {
                 serde_json::json!({"connected": profile_id.is_some(), "profileId": profile_id, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
             }
             "system.capabilities" => {
-                serde_json::json!({"xray":command_exists("xray"),"singBox":command_exists("sing-box"),"systemProxy":true,"tun":false})
+                let settings = self.db.lock().await.settings.clone();
+                serde_json::json!({"xray":command_exists("xray"),"singBox":command_exists("sing-box"),"systemProxy":true,"dnsProtection":settings.dns_leak_protection,"lanBypass":settings.lan_bypass,"tun":false,"transparent":false,"killSwitch":false})
             }
             "system.diagnostics" => {
                 let status = serde_json::json!({"connected": self.connected.lock().await.is_some(), "socket": true});
@@ -1346,6 +1347,19 @@ mod tests {
             .unwrap()
             .iter()
             .any(|field| field == "user"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn capabilities_report_effective_safe_features() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let capabilities = daemon
+            .dispatch("system.capabilities", serde_json::json!({}))
+            .await;
+        assert_eq!(capabilities["tun"], false);
+        assert!(capabilities.get("dnsProtection").is_some());
         let _ = std::fs::remove_file(path);
     }
 
