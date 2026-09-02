@@ -57,7 +57,19 @@ async fn rpc_server_roundtrips_core_workflows() {
     )
     .await;
     assert!(diagnostics["result"]["cores"].is_object());
-    let deleted = call(&mut stream, serde_json::json!({"jsonrpc":"2.0","id":7,"method":"profile.delete","params":{"profileId":profile_id}})).await;
+    let bulk = call(
+        &mut stream,
+        serde_json::json!({"jsonrpc":"2.0","id":7,"method":"test.bulk","params":{"profileIds":[]}}),
+    )
+    .await;
+    assert_eq!(bulk["result"]["cancelled"], false);
+    let cancel = call(
+        &mut stream,
+        serde_json::json!({"jsonrpc":"2.0","id":8,"method":"test.bulk.cancel","params":{}}),
+    )
+    .await;
+    assert_eq!(cancel["result"]["ok"], true);
+    let deleted = call(&mut stream, serde_json::json!({"jsonrpc":"2.0","id":9,"method":"profile.delete","params":{"profileId":profile_id}})).await;
     assert_eq!(deleted["result"]["ok"], true);
     task.abort();
     let _ = tokio::fs::remove_dir_all(root).await;
