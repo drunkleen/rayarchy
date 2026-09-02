@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "com.drunkleen.rayarchy",
+  "name": "Rayarchy",
+  "version": "0.1.0",
+  "author": "DrunkLeen",
+  "description": "v2rayN-inspired proxy manager for the Omarchy shell",
+  "kinds": ["bar-widget", "panel"],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "plugin/src/RayarchyBar.qml",
+    "panel": "plugin/src/RayarchyPanel.qml"
+  },
+  "barWidget": {
+    "displayName": "Rayarchy",
+    "description": "Manage proxy profiles and connection state",
+    "category": "Network",
+    "aliases": ["proxy", "vpn", "xray", "sing-box"],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

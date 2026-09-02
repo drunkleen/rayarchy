@@ -1,0 +1,110 @@
+use crate::protocol::{ConnectionMode, Core, Protocol};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use uuid::Uuid;
+
+fn id() -> Uuid {
+    Uuid::new_v4()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Profile {
+    #[serde(default = "id")]
+    pub id: Uuid,
+    pub name: String,
+    pub protocol: Protocol,
+    #[serde(default)]
+    pub core: Core,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub favorite: bool,
+    #[serde(default)]
+    pub server: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub source_id: Option<Uuid>,
+    #[serde(default)]
+    pub fields: Value,
+    #[serde(default)]
+    pub raw: Option<String>,
+}
+
+impl Default for Profile {
+    fn default() -> Self {
+        Self {
+            id: id(),
+            name: String::new(),
+            protocol: Protocol::Vless,
+            core: Core::Auto,
+            enabled: true,
+            favorite: false,
+            server: None,
+            port: None,
+            source_id: None,
+            fields: Value::Object(Default::default()),
+            raw: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Subscription {
+    #[serde(default = "id")]
+    pub id: Uuid,
+    pub name: String,
+    pub url: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub auto_update: AutoUpdate,
+    #[serde(default)]
+    pub last_error: Option<String>,
+}
+fn default_true() -> bool {
+    true
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoUpdate {
+    Off,
+    Startup,
+    #[default]
+    Daily,
+    Every6Hours,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Settings {
+    #[serde(default)]
+    pub connection_mode: ConnectionMode,
+    #[serde(default)]
+    pub preferred_core: Core,
+    #[serde(default = "default_port")]
+    pub local_port: u16,
+    #[serde(default)]
+    pub kill_switch: bool,
+    #[serde(default)]
+    pub dns_leak_protection: bool,
+    #[serde(default)]
+    pub lan_bypass: bool,
+}
+fn default_port() -> u16 {
+    1080
+}
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            connection_mode: ConnectionMode::SystemProxy,
+            preferred_core: Core::Auto,
+            local_port: 1080,
+            kill_switch: false,
+            dns_leak_protection: true,
+            lan_bypass: true,
+        }
+    }
+}
