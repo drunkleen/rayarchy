@@ -35,6 +35,7 @@ pub struct Daemon {
     child_pid: AtomicU32,
     config_path: PathBuf,
     proxy_backup: Mutex<Option<sysproxy::Backup>>,
+    logs: Mutex<Vec<String>>,
 }
 impl Daemon {
     pub fn new(path: PathBuf) -> anyhow::Result<Arc<Self>> {
@@ -51,6 +52,7 @@ impl Daemon {
             child_pid: AtomicU32::new(0),
             config_path: std::env::temp_dir().join("rayarchy/config.json"),
             proxy_backup: Mutex::new(None),
+            logs: Mutex::new(Vec::new()),
         }))
     }
     async fn save(&self) -> anyhow::Result<()> {
@@ -61,6 +63,13 @@ impl Daemon {
         }
         std::fs::write(&self.path, bytes)?;
         Ok(())
+    }
+    async fn log(&self, line: impl Into<String>) {
+        let mut logs = self.logs.lock().await;
+        logs.push(line.into());
+        if logs.len() > 500 {
+            logs.remove(0);
+        }
     }
 
     async fn connect_profile(self: &Arc<Self>, id: uuid::Uuid) -> Result<(), String> {
@@ -191,6 +200,11 @@ impl Daemon {
             }
             "system.capabilities" => {
                 serde_json::json!({"xray":command_exists("xray"),"singBox":command_exists("sing-box"),"systemProxy":true,"tun":false})
+            }
+            "system.logs" => {
+                let limit = params["limit"].as_u64().unwrap_or(200).min(500) as usize;
+                let logs = self.logs.lock().await;
+                serde_json::json!({"lines":logs.iter().rev().take(limit).cloned().collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>()})
             }
             "test.history" => {
                 serde_json::to_value(&self.db.lock().await.test_history).unwrap_or_default()
@@ -372,13 +386,20 @@ impl Daemon {
                 }
                 match self.connect_profile(id.unwrap()).await {
                     Ok(()) => {
+                        self.log(format!("connected profile {id:?}")).await;
                         serde_json::json!({"accepted":true,"state":"CONNECTED","profileId":id})
                     }
-                    Err(error) => serde_json::json!({"error":error}),
+                    Err(error) => {
+                        self.log(format!("connection failed: {error}")).await;
+                        serde_json::json!({"error":error})
+                    }
                 }
             }
             "profile.disconnect" => match self.disconnect_profile().await {
-                Ok(()) => serde_json::json!({"accepted":true,"state":"DISCONNECTED"}),
+                Ok(()) => {
+                    self.log("disconnected").await;
+                    serde_json::json!({"accepted":true,"state":"DISCONNECTED"})
+                }
                 Err(error) => serde_json::json!({"error":error}),
             },
             "settings.get" => {
