@@ -66,6 +66,8 @@ pub struct Subscription {
     pub auto_update: AutoUpdate,
     #[serde(default)]
     pub last_error: Option<String>,
+    #[serde(default)]
+    pub last_refresh_at: Option<i64>,
 }
 fn default_true() -> bool {
     true

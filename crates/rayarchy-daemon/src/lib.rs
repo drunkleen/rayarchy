@@ -231,6 +231,7 @@ impl Daemon {
             .find(|s| s.id == id)
         {
             subscription.last_error = error;
+            subscription.last_refresh_at = Some(chrono::Utc::now().timestamp());
         }
         let _ = self.save().await;
     }
