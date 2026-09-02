@@ -1476,6 +1476,39 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
+    #[tokio::test]
+    async fn unsupported_tun_mode_never_reports_connected() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Tun test".into(),
+            server: Some("tun.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        let id = profile.id;
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        let settings = daemon
+            .dispatch(
+                "settings.update",
+                serde_json::json!({"settings":{"connectionMode":"tun","preferredCore":"auto","localPort":1080,"killSwitch":false,"dnsLeakProtection":false,"lanBypass":false}}),
+            )
+            .await;
+        assert_eq!(settings["ok"], true);
+        let result = daemon
+            .dispatch("profile.connect", serde_json::json!({"profileId":id}))
+            .await;
+        assert!(result.get("error").is_some());
+        let status = daemon
+            .dispatch("system.status", serde_json::json!({}))
+            .await;
+        assert_eq!(status["connected"], false);
+        let _ = std::fs::remove_file(path);
+    }
+
     #[test]
     fn routing_rules_are_compiled_into_core_config() {
         let profile = Profile {
