@@ -13,7 +13,8 @@
 - [ ] Duplicate, export, share URI, QR, delete confirmation
 - [ ] Subscription add/edit/delete/update, filters, auto-update, overrides
 - [ ] TCP/proxy/real latency, speed, bulk tests, cancellation, history
-- [ ] Xray and sing-box generation, validation, lifecycle, crash recovery
+- [x] Xray and sing-box generation and basic lifecycle with health-gated activation
+- [ ] Core validation, crash recovery, reconnect backoff, and protocol-specific settings
 - [ ] Local, System Proxy, TUN, transparent, DNS, LAN bypass, kill switch
 - [ ] Routing rules, GeoIP/GeoSite downloads with hash verification
 - [ ] Logs, diagnostics, backup/restore, migration and security hardening

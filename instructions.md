@@ -17,3 +17,8 @@ Every v2rayN Linux workflow listed in `TODO.md` has an RPC implementation,
 automated tests, user-facing QML controls, documented failure behavior, and a
 verified Omarchy-shell acceptance run. No connected state may be reported
 without a successful outbound health check and mode activation.
+
+The current core slice starts installed Xray or sing-box with a generated
+local mixed listener and verifies an outbound request through that listener
+before activation. Protocol-specific transport and routing support remains in
+progress.

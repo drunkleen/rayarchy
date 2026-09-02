@@ -1,6 +1,7 @@
 use rayarchy_core::{Profile, Settings, Subscription};
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
+pub mod configgen;
 pub mod server;
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -14,6 +15,8 @@ pub struct Daemon {
     db: Mutex<Database>,
     path: PathBuf,
     connected: Mutex<Option<uuid::Uuid>>,
+    process: Mutex<Option<tokio::process::Child>>,
+    config_path: PathBuf,
 }
 impl Daemon {
     pub fn new(path: PathBuf) -> anyhow::Result<Arc<Self>> {
@@ -26,6 +29,8 @@ impl Daemon {
             db: Mutex::new(db),
             path,
             connected: Mutex::new(None),
+            process: Mutex::new(None),
+            config_path: std::env::temp_dir().join("rayarchy/config.json"),
         }))
     }
     async fn save(&self) -> anyhow::Result<()> {
@@ -35,6 +40,74 @@ impl Daemon {
             std::fs::create_dir_all(p)?;
         }
         std::fs::write(&self.path, bytes)?;
+        Ok(())
+    }
+
+    async fn connect_profile(&self, id: uuid::Uuid) -> Result<(), String> {
+        let (profile, settings) = {
+            let db = self.db.lock().await;
+            (
+                db.profiles
+                    .iter()
+                    .find(|p| p.id == id)
+                    .cloned()
+                    .ok_or("profile not found")?,
+                db.settings.clone(),
+            )
+        };
+        let core = configgen::choose_core(&profile, settings.preferred_core);
+        let config = configgen::build(&profile, core, "127.0.0.1", settings.local_port);
+        if let Some(parent) = self.config_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(
+            &self.config_path,
+            serde_json::to_vec_pretty(&config).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        let bin = if core == rayarchy_core::protocol::Core::SingBox {
+            "sing-box"
+        } else {
+            "xray"
+        };
+        let child = tokio::process::Command::new(bin)
+            .args(["run", "-c"])
+            .arg(&self.config_path)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| format!("could not start {bin}: {e}"))?;
+        *self.process.lock().await = Some(child);
+        for _ in 0..30 {
+            if tokio::net::TcpStream::connect(("127.0.0.1", settings.local_port))
+                .await
+                .is_ok()
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        let health = tokio::process::Command::new("curl")
+            .args(["-fsS", "--max-time", "8", "--proxy"])
+            .arg(format!("http://127.0.0.1:{}", settings.local_port))
+            .arg("https://www.gstatic.com/generate_204")
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
+        if !health.status.success() {
+            let _ = self.disconnect_profile().await;
+            return Err("proxy health check failed; connection was not activated".into());
+        }
+        *self.connected.lock().await = Some(id);
+        Ok(())
+    }
+
+    async fn disconnect_profile(&self) -> Result<(), String> {
+        *self.connected.lock().await = None;
+        if let Some(mut child) = self.process.lock().await.take() {
+            let _ = child.kill().await;
+        }
+        let _ = std::fs::remove_file(&self.config_path);
         Ok(())
     }
     pub async fn dispatch(&self, method: &str, params: serde_json::Value) -> serde_json::Value {
@@ -167,12 +240,17 @@ impl Daemon {
                 {
                     return serde_json::json!({"error":"profile not found"});
                 }
-                serde_json::json!({"error":"core execution is not available in this development slice; connection was not claimed"})
+                match self.connect_profile(id.unwrap()).await {
+                    Ok(()) => {
+                        serde_json::json!({"accepted":true,"state":"CONNECTED","profileId":id})
+                    }
+                    Err(error) => serde_json::json!({"error":error}),
+                }
             }
-            "profile.disconnect" => {
-                *self.connected.lock().await = None;
-                serde_json::json!({"accepted":true,"state":"DISCONNECTED"})
-            }
+            "profile.disconnect" => match self.disconnect_profile().await {
+                Ok(()) => serde_json::json!({"accepted":true,"state":"DISCONNECTED"}),
+                Err(error) => serde_json::json!({"error":error}),
+            },
             "settings.get" => {
                 serde_json::to_value(&self.db.lock().await.settings).unwrap_or_default()
             }

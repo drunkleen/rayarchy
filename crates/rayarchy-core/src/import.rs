@@ -38,6 +38,9 @@ pub fn parse_uri(input: &str) -> Result<Profile, String> {
         "authority".into(),
         serde_json::Value::String(authority.into()),
     );
+    if let Some((user, _)) = authority.rsplit_once('@') {
+        fields.insert("user".into(), serde_json::Value::String(user.to_string()));
+    }
     if let Some(query) = rest
         .split_once('?')
         .map(|(_, q)| q.split('#').next().unwrap_or(q))
