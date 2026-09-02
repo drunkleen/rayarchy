@@ -16,6 +16,7 @@ Item {
   property string message: ""
   property string subscriptionSummary: ""
   property var bulkResults: []
+  property string bulkSortMode: "fastest"
   ProtocolEditor { id: structuredEditor; rpc: root.rpc; onSaved: root.refresh() }
   function refresh() {
     if (!root.rpc) return
@@ -40,12 +41,20 @@ Item {
   }
   function formatBulkResults(results) {
     if (!results || results.length === 0) return "No profiles were tested."
-    return results.map(function(row) {
+    var ordered = results.slice().sort(function(a, b) {
+      if (root.bulkSortMode === "successful") return Number(b.ok) - Number(a.ok) || Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999)
+      if (root.bulkSortMode === "failed") return Number(a.ok) - Number(b.ok) || Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999)
+      return Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999)
+    })
+    return ordered.map(function(row) {
       var status = row.ok ? "PASS" : "FAIL"
       var latency = Number(row.latencyMs || 0)
       var detail = row.ok ? (latency + " ms") : (row.error || "health check failed")
       return status + "  " + row.name + "  —  " + detail
     }).join("\n")
+  }
+  function cycleBulkSort() {
+    root.bulkSortMode = root.bulkSortMode === "fastest" ? "successful" : (root.bulkSortMode === "successful" ? "failed" : "fastest")
   }
   function moveProfile(profileId, delta) {
     var ids = root.allProfiles.map(function(profile) { return profile.id })
@@ -149,6 +158,7 @@ Item {
     Button { text: "Bulk TCP test"; onClicked: { root.rpc.call("test.bulk", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); subscriptionStatusLoader.item.open() }) } }
     Button { text: "Test all proxy connections"; onClicked: { root.rpc.call("test.bulk.proxy", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { if (!error) root.bulkResults = result.results || []; subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : root.formatBulkResults(root.bulkResults); subscriptionStatusLoader.item.open() }) } }
     Button { text: "Use best working profile"; enabled: root.bulkResults.some(function(r) { return r.ok }); onClicked: { var candidates = root.bulkResults.filter(function(r) { return r.ok }).sort(function(a, b) { return Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999) }); if (candidates.length) { root.selectedId = candidates[0].profileId; root.message = "Selected " + candidates[0].name + " (" + candidates[0].latencyMs + " ms)" } } }
+    Button { text: "Sort results: " + root.bulkSortMode; enabled: root.bulkResults.length > 0; onClicked: { root.cycleBulkSort(); subscriptionStatusLoader.item.contentItem.children[0].text = root.formatBulkResults(root.bulkResults) } }
     Button { text: "Cancel bulk test"; onClicked: root.rpc.call("test.bulk.cancel", {}, function(result, error) { root.message = error ? error.message : "Bulk test cancellation requested" }) }
     Text { text: root.subscriptionSummary; visible: text !== ""; color: root.subscriptionSummary.indexOf("errors") >= 0 ? "#ef6a6a" : Qt.darker(Color.foreground, 1.5) }
     Button { text: "Settings"; onClicked: settings.open() }
