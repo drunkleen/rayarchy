@@ -23,18 +23,48 @@ pub fn parse_uri(input: &str) -> Result<Profile, String> {
         .rsplit_once('@')
         .map(|(_, v)| v)
         .unwrap_or(authority);
-    let (host, port) = host_port.rsplit_once(':').ok_or("URI is missing port")?;
+    let (host, port) = if let Some(stripped) = host_port.strip_prefix('[') {
+        let (addr, tail) = stripped.split_once(']').ok_or("invalid IPv6 host")?;
+        (addr, tail.strip_prefix(':').ok_or("URI is missing port")?)
+    } else {
+        host_port.rsplit_once(':').ok_or("URI is missing port")?
+    };
     let port = port.parse::<u16>().map_err(|_| "invalid port")?;
     if host.is_empty() {
         return Err("URI is missing server".into());
     }
+    let mut fields = serde_json::Map::new();
+    fields.insert(
+        "authority".into(),
+        serde_json::Value::String(authority.into()),
+    );
+    if let Some(query) = rest
+        .split_once('?')
+        .map(|(_, q)| q.split('#').next().unwrap_or(q))
+    {
+        for pair in query.split('&').filter(|p| !p.is_empty()) {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            fields.insert(
+                key.to_string(),
+                serde_json::Value::String(value.to_string()),
+            );
+        }
+    }
+    let name = rest
+        .split_once('#')
+        .and_then(|(_, fragment)| (!fragment.is_empty()).then_some(fragment))
+        .unwrap_or("");
     Ok(Profile {
         protocol,
-        name: format!("{scheme} {host}:{port}"),
-        server: Some(host.trim_matches(['[', ']']).to_string()),
+        name: if name.is_empty() {
+            format!("{scheme} {host}:{port}")
+        } else {
+            name.to_string()
+        },
+        server: Some(host.to_string()),
         port: Some(port),
         raw: Some(input.to_string()),
-        fields: serde_json::json!({"authority": authority}),
+        fields: serde_json::Value::Object(fields),
         ..Profile::default()
     })
 }
@@ -51,5 +81,13 @@ mod tests {
     #[test]
     fn rejects_unknown_scheme() {
         assert!(parse_uri("ftp://example.com:21").is_err());
+    }
+
+    #[test]
+    fn preserves_query_and_ipv6() {
+        let p = parse_uri("vless://id@[2001:db8::1]:443?security=tls#Office").unwrap();
+        assert_eq!(p.server.as_deref(), Some("2001:db8::1"));
+        assert_eq!(p.name, "Office");
+        assert_eq!(p.fields["security"], "tls");
     }
 }
