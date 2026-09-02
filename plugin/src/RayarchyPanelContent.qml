@@ -8,13 +8,14 @@ Item {
   property var profiles: []
   property string query: ""
   property bool connected: false
+  property string selectedId: ""
   function refresh() { if (!root.rpc) return; root.rpc.call("profile.list", {}, function(result, error) { if (!error) root.profiles = result || [] }) }
   Component.onCompleted: root.refresh()
   Connections { target: root.rpc; function onConnectedChanged() { if (root.rpc.connected) root.refresh() } }
   Rectangle { anchors.fill: parent; color: Color.background }
   Column {
     anchors.fill: parent; anchors.margins: 18; spacing: 12
-    Row { spacing: 12; Text { text: "Rayarchy"; color: Color.foreground; font.bold: true; font.pixelSize: 22 } Button { text: root.connected ? "Disconnect" : "Connect"; onClicked: root.connected = !root.connected } }
+    Row { spacing: 12; Text { text: "Rayarchy"; color: Color.foreground; font.bold: true; font.pixelSize: 22 } Button { text: root.connected ? "Disconnect" : "Connect"; enabled: root.selectedId !== ""; onClicked: if (root.rpc) root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : { profileId: root.selectedId }, function(result, error) { if (!error) root.connected = !root.connected }) } }
     TextField { width: parent.width; placeholderText: "Search profiles…"; onTextChanged: root.query = text }
     Text { visible: root.profiles.length === 0; text: "No profiles yet. Add a profile or subscription to begin."; color: Color.foreground }
     ListView {
@@ -26,6 +27,7 @@ Item {
           anchors.fill: parent; anchors.margins: 8; spacing: 10
           Column { width: parent.width - 130; Text { text: modelData.name; color: Color.foreground; elide: Text.ElideRight } Text { text: (modelData.server || "") + (modelData.port ? ":" + modelData.port : ""); color: Qt.darker(Color.foreground, 1.5) } }
           Button { text: "★"; onClicked: root.rpc.call("profile.favorite", { profileId: modelData.id, favorite: !modelData.favorite }, function() { root.refresh() }) }
+          Button { text: "Use"; onClicked: root.selectedId = modelData.id }
           Button { text: "•••"; onClicked: details.open() }
         }
         Dialog {
@@ -44,8 +46,10 @@ Item {
     }
     Button { text: "Add profile"; onClicked: addDialog.open() }
     Button { text: "Subscriptions"; onClicked: subscriptions.open() }
+    Button { text: "Settings"; onClicked: settings.open() }
   }
   Dialog { id: addDialog; modal: true; title: "Add profile"; standardButtons: Dialog.Ok | Dialog.Cancel; contentItem: TextArea { id: input; placeholderText: "Paste a vless://, vmess://, trojan://, ss://, JSON, or YAML configuration" } onAccepted: if (root.rpc) root.rpc.call("import.commit", { input: input.text }, function(result, error) { if (!error) { input.text = ""; root.refresh() } }) }
   Dialog { id: subscriptions; modal: true; title: "Subscriptions"; standardButtons: Dialog.Close; contentItem: Column { spacing: 8; Text { text: "Add a subscription URL"; color: Color.foreground } TextField { id: subName; placeholderText: "Name" } TextField { id: subUrl; placeholderText: "https://example/subscribe" } Button { text: "Add and refresh"; onClicked: root.rpc.call("subscription.create", { subscription:{name:subName.text, url:subUrl.text, enabled:true, autoUpdate:"daily"} }, function(result,error) { if (!error) { subscriptions.close(); root.refresh() } }) } }
   }
+  Dialog { id: settings; modal: true; title: "Rayarchy settings"; standardButtons: Dialog.Save | Dialog.Cancel; property var values: ({}); onOpened: if (root.rpc) root.rpc.call("settings.get", {}, function(result,error) { if (!error) { settings.values=result || {}; mode.currentIndex=["system_proxy","local","tun","transparent"].indexOf(settings.values.connectionMode); port.text=String(settings.values.localPort || 1080) } }); contentItem: Column { spacing: 8; ComboBox { id: mode; model: ["system_proxy","local","tun","transparent"] } TextField { id: port; placeholderText: "Local proxy port"; inputMethodHints: Qt.ImhDigitsOnly } CheckBox { id: dns; text: "DNS leak protection"; checked: !!settings.values.dnsLeakProtection } CheckBox { id: lan; text: "Bypass LAN"; checked: !!settings.values.lanBypass } } onAccepted: if (root.rpc) root.rpc.call("settings.update", { settings:{ connectionMode:mode.currentText, preferredCore:settings.values.preferredCore || "auto", localPort:Number(port.text), killSwitch:false, dnsLeakProtection:dns.checked, lanBypass:lan.checked } }, function(result,error) { if (error) settings.open() }) }
 }
