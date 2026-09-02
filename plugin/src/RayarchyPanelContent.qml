@@ -72,6 +72,7 @@ Item {
   Component.onCompleted: root.refresh()
   Connections { target: root.rpc; function onConnectedChanged() { if (root.rpc.connected) root.refresh() } }
   Timer { interval: 2000; repeat: true; running: root.visible; triggeredOnStart: true; onTriggered: root.refreshStatus() }
+  Timer { interval: 1000; repeat: true; running: subscriptions.visible; triggeredOnStart: true; onTriggered: root.refreshSubscriptions() }
   Rectangle { anchors.fill: parent; color: Color.background }
   Loader { id: subscriptionStatusLoader; sourceComponent: Component { Dialog { modal: true; title: "Subscription status"; standardButtons: Dialog.Close; contentItem: TextArea { id: statusText; width: 520; height: 300; readOnly: true; wrapMode: TextEdit.NoWrap; selectByMouse: true } } } }
   Connections { target: subEdit; function onClosed() { root.refreshSubscriptions() } }
