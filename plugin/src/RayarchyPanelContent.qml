@@ -23,6 +23,7 @@ Item {
   property string ipProtectionDetail: ""
   property bool ipCheckRunning: false
   property string ipCheckedAt: ""
+  property bool diagnosticRunning: false
   property string selectedId: ""
   property string message: ""
   property string subscriptionSummary: ""
@@ -142,6 +143,25 @@ Item {
       root.ipCheckedAt = new Date().toLocaleTimeString();
     });
   }
+  function runDiagnostic(method, params, label) {
+    if (!root.rpc || root.diagnosticRunning)
+      return;
+    root.diagnosticRunning = true;
+    root.message = label + "…";
+    root.rpc.call(method, params || {}, function (result, error) {
+      root.diagnosticRunning = false;
+      if (error) {
+        root.message = error.message || (label + " failed");
+        return;
+      }
+      if (method === "test.tcp")
+        root.message = (result.ok ? "TCP reachable" : "TCP failed") + " • " + (result.latencyMs || "n/a") + " ms";
+      else if (method === "test.proxy")
+        root.message = (result.ok ? "Proxy reachable" : "Proxy failed") + " • " + (result.latencyMs || "n/a") + " ms";
+      else
+        root.message = (result.ok ? "Speed" : "Speed test failed") + " • " + Number(result.megabitsPerSecond || 0).toFixed(1) + " Mbps";
+    });
+  }
   Rectangle { anchors.fill: parent; color: Color.background }
   Loader { id: subscriptionStatusLoader; sourceComponent: Component { Dialog { modal: true; title: "Subscription status"; standardButtons: Dialog.Close; contentItem: TextArea { id: statusText; width: 520; height: 300; readOnly: true; wrapMode: TextEdit.NoWrap; selectByMouse: true } } } }
   Loader { id: rawEditorLoader; sourceComponent: Component { Dialog { modal: true; title: "Raw profile configuration"; standardButtons: Dialog.Save | Dialog.Cancel; property string profileId: ""; contentItem: TextArea { id: rawText; width: 560; height: 320; wrapMode: TextEdit.NoWrap; selectByMouse: true } onAccepted: root.rpc.call("profile.raw.update", { profileId: rawEditorLoader.item.profileId, raw: rawText.text }, function(result, error) { root.message = error ? error.message : "Raw configuration saved"; if (!error) rawEditorLoader.item.close(); root.refresh() }) } } }
@@ -183,13 +203,13 @@ Item {
             spacing: 8
             Text { text: modelData.protocol + "  " + (modelData.server || "") + ":" + (modelData.port || ""); color: Color.foreground }
             Button { text: "Connect this profile"; enabled: !root.connected; onClicked: root.rpc.call("profile.connect", { profileId:modelData.id }, function(result,error) { if (error) root.message = error.message || "Connection failed"; else { root.message = "Connection established"; root.refreshStatus(); details.close() } }) }
-            Button { text: "TCP ping"; onClicked: root.rpc.call("test.tcp", { host:modelData.server || "", port:modelData.port || 443 }, function(result,error) { root.message = error ? error.message : ((result.ok ? "TCP reachable" : "TCP failed") + " • " + (result.latencyMs || "n/a") + " ms") }) }
+            Button { text: root.diagnosticRunning ? "Testing…" : "TCP ping"; enabled: !root.diagnosticRunning; onClicked: root.runDiagnostic("test.tcp", { host:modelData.server || "", port:modelData.port || 443 }, "TCP test") }
             Button { text: "Validate core config"; onClicked: root.rpc.call("core.validate", { profileId:modelData.id }, function(result,error) { root.message = error ? error.message : (result.ok ? "Configuration accepted by " + result.core : "Configuration rejected") }) }
             Button { text: "Protocol fields"; onClicked: root.rpc.call("profile.schema", { protocol:modelData.protocol }, function(result,error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); subscriptionStatusLoader.item.open() }) }
             Button { text: "Quick edit fields"; onClicked: { structuredEditor.load(modelData); structuredEditor.open() } }
-            Button { text: "Proxy ping"; onClicked: root.rpc.call("test.proxy", {}, function(result,error) { root.message = error ? error.message : ((result.ok ? "Proxy reachable" : "Proxy failed") + " • " + (result.latencyMs || "n/a") + " ms") }) }
+            Button { text: root.diagnosticRunning ? "Testing…" : "Proxy ping"; enabled: !root.diagnosticRunning; onClicked: root.runDiagnostic("test.proxy", {}, "Proxy test") }
             Button { text: "Check external IP"; onClicked: root.rpc.call("test.ip", {}, function(result,error) { root.message = error ? error.message : (result.protected ? "Proxy IP: " + result.proxyIp : "Proxy is not changing the external IP") }) }
-            Button { text: "Speed test"; onClicked: root.rpc.call("test.speed", {}, function(result,error) { root.message = error ? error.message : ((result.ok ? "Speed" : "Speed test failed") + " • " + Number(result.megabitsPerSecond || 0).toFixed(1) + " Mbps") }) }
+            Button { text: root.diagnosticRunning ? "Testing…" : "Speed test"; enabled: !root.diagnosticRunning; onClicked: root.runDiagnostic("test.speed", {}, "Speed test") }
             Button { text: "Test history"; onClicked: { details.close(); root.rpc.call("test.history", {}, function(result,error) { historyText.text = error ? error.message : JSON.stringify(result, null, 2); history.open() }) } }
             Button { text: "View daemon logs"; onClicked: { details.close(); root.rpc.call("system.logs", { limit:200 }, function(result,error) { logsText.text = error ? error.message : (result.lines || []).join("\n"); logs.open() }) } }
             Button { text: "Clear health result"; onClicked: root.rpc.call("test.history.clear", { profileId:modelData.id }, function(result,error) { root.message = error ? error.message : "Health result cleared"; if (!error) root.refresh() }) }
