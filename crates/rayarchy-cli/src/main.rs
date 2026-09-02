@@ -1,12 +1,14 @@
 use rayarchy_daemon::Daemon;
-use std::{env, path::PathBuf};
+use std::{env, path::PathBuf, sync::Arc};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UnixStream;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let base = env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
-    let daemon = Daemon::new(base.join("rayarchy/state.json"))?;
+    let daemon = Client::new(base.join("rayarchy/state.json"))?;
     let mut args = env::args().skip(1);
     match args.next().as_deref().unwrap_or("status") {
         "status" => print_json(
@@ -119,4 +121,47 @@ fn print_json(value: serde_json::Value) {
         "{}",
         serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())
     );
+}
+
+struct Client {
+    socket: PathBuf,
+    fallback: Arc<Daemon>,
+}
+
+impl Client {
+    fn new(state: PathBuf) -> anyhow::Result<Self> {
+        let runtime = env::var_os("XDG_RUNTIME_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/tmp"));
+        Ok(Self {
+            socket: runtime.join("rayarchy/rayarchy.sock"),
+            fallback: Daemon::new(state)?,
+        })
+    }
+
+    async fn dispatch(&self, method: &str, params: serde_json::Value) -> serde_json::Value {
+        if let Ok(stream) = UnixStream::connect(&self.socket).await {
+            let (read, mut write) = stream.into_split();
+            let request =
+                serde_json::json!({"jsonrpc":"2.0","id":1,"method":method,"params":params});
+            if write
+                .write_all(format!("{}\n", request).as_bytes())
+                .await
+                .is_ok()
+            {
+                let mut lines = BufReader::new(read).lines();
+                if let Ok(Some(line)) = lines.next_line().await {
+                    if let Ok(response) = serde_json::from_str::<serde_json::Value>(&line) {
+                        if let Some(error) = response.get("error") {
+                            return serde_json::json!({"error":error["message"].clone()});
+                        }
+                        if let Some(result) = response.get("result") {
+                            return result.clone();
+                        }
+                    }
+                }
+            }
+        }
+        self.fallback.dispatch(method, params).await
+    }
 }
