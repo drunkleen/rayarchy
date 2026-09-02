@@ -140,10 +140,10 @@ Item {
     Text { visible: root.profiles.length === 0; text: "No profiles yet. Add a profile or subscription to begin."; color: Color.foreground }
     Text { visible: root.message !== ""; text: root.message; color: Color.accent; width: parent.width; wrapMode: Text.WordWrap }
     ListView {
-      width: parent.width; height: Math.max(80, parent.height - y - 54)
-      model: root.profiles
+      width: parent.width; height: Math.max(80, parent.height - y - 54); focus: true; keyNavigationEnabled: true; activeFocusOnTab: true
+      model: root.profiles; onCurrentIndexChanged: if (currentIndex >= 0 && currentIndex < root.profiles.length) root.selectedId = root.profiles[currentIndex].id
       delegate: Rectangle {
-        width: ListView.view.width; height: 58; color: "transparent"; border.color: Color.foreground; border.width: 1
+        width: ListView.view.width; height: 58; color: "transparent"; border.color: root.selectedId === modelData.id ? Color.accent : Color.foreground; border.width: root.selectedId === modelData.id ? 2 : 1
         Row {
           anchors.fill: parent; anchors.margins: 8; spacing: 10
           Column { width: parent.width - 230; Text { text: modelData.name; color: Color.foreground; elide: Text.ElideRight } Text { text: (modelData.group ? modelData.group + " • " : "") + (modelData.server || "") + (modelData.port ? ":" + modelData.port : ""); color: Qt.darker(Color.foreground, 1.5) } Text { property var health: root.bulkResults.find(function(r) { return r.profileId === modelData.id }) || modelData.lastTest; visible: health !== undefined; text: health && health.ok ? "✓ Verified • " + health.latencyMs + " ms" : "✗ Failed • " + ((health && health.error) || "health check failed"); color: health && health.ok ? "#74d99f" : "#ef6a6a" } }
