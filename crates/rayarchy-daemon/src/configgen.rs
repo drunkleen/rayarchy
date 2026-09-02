@@ -21,11 +21,16 @@ pub fn choose_core(profile: &Profile, preferred: Core) -> Core {
 pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json::Value {
     let server = profile.server.clone().unwrap_or_default();
     let server_port = profile.port.unwrap_or_default();
-    let user = profile
-        .fields
-        .get("user")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default();
+    let field = |name: &str| {
+        profile
+            .fields
+            .get(name)
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+    };
+    let user = field("user");
+    let password = field("password");
+    let method = field("method");
     let outbound = match core {
         Core::SingBox => {
             let typ = match profile.protocol {
@@ -39,7 +44,27 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                 Protocol::Tuic => "tuic",
                 Protocol::Wireguard => "wireguard",
             };
-            serde_json::json!({"type":typ,"tag":"proxy","server":server,"server_port":server_port,"uuid":user,"password":user})
+            let mut value = serde_json::json!({"type":typ,"tag":"proxy","server":server,"server_port":server_port});
+            if matches!(
+                profile.protocol,
+                Protocol::Vless | Protocol::Vmess | Protocol::Tuic
+            ) {
+                value["uuid"] = serde_json::Value::String(user.to_string());
+            }
+            if matches!(
+                profile.protocol,
+                Protocol::Trojan | Protocol::Shadowsocks | Protocol::Hysteria2 | Protocol::Tuic
+            ) {
+                value["password"] = serde_json::Value::String(if password.is_empty() {
+                    user.to_string()
+                } else {
+                    password.to_string()
+                });
+            }
+            if profile.protocol == Protocol::Shadowsocks && !method.is_empty() {
+                value["method"] = serde_json::Value::String(method.to_string());
+            }
+            value
         }
         Core::Xray => {
             let protocol = match profile.protocol {
@@ -51,7 +76,14 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                 Protocol::Http => "http",
                 _ => "freedom",
             };
-            serde_json::json!({"protocol":protocol,"tag":"proxy","settings":{"vnext":[{"address":server,"port":server_port,"users":[{"id":user,"encryption":"none"}]}]}})
+            let settings = if matches!(profile.protocol, Protocol::Vless | Protocol::Vmess) {
+                serde_json::json!({"vnext":[{"address":server,"port":server_port,"users":[{"id":user,"encryption":"none"}]}]})
+            } else if profile.protocol == Protocol::Trojan {
+                serde_json::json!({"servers":[{"address":server,"port":server_port,"password":if password.is_empty() { user } else { password }}]})
+            } else {
+                serde_json::json!({"servers":[{"address":server,"port":server_port,"method":method,"password":password}]})
+            };
+            serde_json::json!({"protocol":protocol,"tag":"proxy","settings":settings})
         }
         Core::Auto => unreachable!(),
     };
@@ -60,7 +92,7 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
             serde_json::json!({"log":{"level":"info"},"inbounds":[{"type":"mixed","tag":"rayarchy-in","listen":host,"listen_port":port}],"outbounds":[outbound,{"type":"direct","tag":"direct"},{"type":"block","tag":"block"}],"route":{"rules":[]}})
         }
         Core::Xray => {
-            serde_json::json!({"log":{"loglevel":"warning"},"inbounds":[{"tag":"rayarchy-in","listen":host,"port":port,"protocol":"mixed","settings":{}}],"outbounds":[outbound,{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole","tag":"block"}]})
+            serde_json::json!({"log":{"loglevel":"warning"},"inbounds":[{"tag":"rayarchy-in","listen":host,"port":port,"protocol":"http","settings":{}}],"outbounds":[outbound,{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole","tag":"block"}],"routing":{"domainStrategy":"AsIs","rules":[]}})
         }
         Core::Auto => unreachable!(),
     }

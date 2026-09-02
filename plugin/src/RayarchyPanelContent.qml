@@ -10,7 +10,13 @@ Item {
   property bool connected: false
   property string selectedId: ""
   property string message: ""
-  function refresh() { if (!root.rpc) return; root.rpc.call("profile.list", {}, function(result, error) { if (!error) root.profiles = result || [] }) }
+  function refresh() {
+    if (!root.rpc) return
+    root.rpc.call("profile.list", {}, function(result, error) { if (!error) root.profiles = result || [] })
+    root.rpc.call("system.status", {}, function(result, error) {
+      if (!error) { root.connected = !!result.connected; root.selectedId = result.profileId || root.selectedId }
+    })
+  }
   Component.onCompleted: root.refresh()
   Connections { target: root.rpc; function onConnectedChanged() { if (root.rpc.connected) root.refresh() } }
   Rectangle { anchors.fill: parent; color: Color.background }
@@ -40,10 +46,12 @@ Item {
             Text { text: modelData.protocol + "  " + (modelData.server || "") + ":" + (modelData.port || ""); color: Color.foreground }
             Button { text: "TCP ping"; onClicked: root.rpc.call("test.tcp", { host:modelData.server || "", port:modelData.port || 443 }, function(result,error) { root.message = error ? error.message : ((result.ok ? "TCP reachable" : "TCP failed") + " • " + (result.latencyMs || "n/a") + " ms") }) }
             Button { text: "Proxy ping"; onClicked: root.rpc.call("test.proxy", {}, function(result,error) { root.message = error ? error.message : ((result.ok ? "Proxy reachable" : "Proxy failed") + " • " + (result.latencyMs || "n/a") + " ms") }) }
+            Button { text: "Speed test"; onClicked: root.rpc.call("test.speed", {}, function(result,error) { root.message = error ? error.message : ((result.ok ? "Speed" : "Speed test failed") + " • " + Number(result.megabitsPerSecond || 0).toFixed(1) + " Mbps") }) }
+            Button { text: "Test history"; onClicked: { details.close(); root.rpc.call("test.history", {}, function(result,error) { historyText.text = error ? error.message : JSON.stringify(result, null, 2); history.open() }) } }
             Button { text: "Edit"; onClicked: { details.close(); nameEdit.text=modelData.name; serverEdit.text=modelData.server || ""; portEdit.text=String(modelData.port || ""); edit.open() } }
             Button { text: "Export"; onClicked: root.rpc.call("profile.export", { profileId: modelData.id }, function(result, error) { if (!error) exportText.text=result.payload || ""; exportDialog.open() }) }
             Button { text: "QR / share"; onClicked: root.rpc.call("profile.qr", { profileId: modelData.id }, function(result, error) { if (!error) qrText.text=result.payload || ""; qrDialog.open() }) }
-            Button { text: "Delete"; onClicked: { details.close(); root.rpc.call("profile.delete", { profileId: modelData.id }, function() { root.refresh() }) } }
+            Button { text: "Delete"; onClicked: { details.close(); pendingDeleteId = modelData.id; pendingDeleteName = modelData.name; confirmDelete.open() } }
           }
         }
         Dialog { id: edit; title: "Edit profile"; modal: true; standardButtons: Dialog.Save | Dialog.Cancel; contentItem: Column { spacing: 8; TextField { id: nameEdit; placeholderText: "Profile name" } TextField { id: serverEdit; placeholderText: "Server" } TextField { id: portEdit; placeholderText: "Port"; inputMethodHints: Qt.ImhDigitsOnly } } onAccepted: root.rpc.call("profile.update", { profile: { id:modelData.id, name:nameEdit.text, protocol:modelData.protocol, core:modelData.core, enabled:modelData.enabled, favorite:modelData.favorite, server:serverEdit.text, port:Number(portEdit.text), sourceId:modelData.sourceId, fields:modelData.fields, raw:modelData.raw } }, function() { root.refresh() }) }
@@ -58,6 +66,10 @@ Item {
     Button { text: "Routing"; onClicked: routing.open() }
     Button { text: "Backup"; onClicked: { if (root.rpc) root.rpc.call("backup.export", {}, function(result,error) { backupText.text=error ? error.message : JSON.stringify(result); backup.open() }) } }
   }
+  property string pendingDeleteId: ""
+  property string pendingDeleteName: ""
+  Dialog { id: confirmDelete; modal: true; title: "Delete profile?"; standardButtons: Dialog.Yes | Dialog.No; contentItem: Text { text: "Delete “" + root.pendingDeleteName + "”? This cannot be undone."; color: Color.foreground; wrapMode: Text.WordWrap } onAccepted: root.rpc.call("profile.delete", { profileId: root.pendingDeleteId }, function(result,error) { root.message = error ? error.message : "Profile deleted"; if (!error) { root.selectedId = ""; root.refresh() } }) }
+  Dialog { id: history; modal: true; title: "Test history"; standardButtons: Dialog.Close; contentItem: TextArea { id: historyText; width: 520; height: 300; readOnly: true; wrapMode: TextEdit.NoWrap; selectByMouse: true } }
   Dialog { id: addDialog; modal: true; title: "Add profile"; standardButtons: Dialog.Ok | Dialog.Cancel; contentItem: TextArea { id: input; placeholderText: "Paste a vless://, vmess://, trojan://, ss://, JSON, or YAML configuration" } onAccepted: if (root.rpc) root.rpc.call("import.commit", { input: input.text }, function(result, error) { if (!error) { input.text = ""; root.refresh() } }) }
   Dialog { id: subscriptions; modal: true; title: "Subscriptions"; standardButtons: Dialog.Close; property var items: []; onOpened: if (root.rpc) root.rpc.call("subscription.list", {}, function(result,error) { if (!error) subscriptions.items=result || [] }); contentItem: Column { spacing: 8; Text { text: "Configured sources"; color: Color.foreground } ListView { width: 430; height: Math.min(260, Math.max(70, subscriptions.items.length * 52)); model: subscriptions.items; delegate: Row { spacing: 6; width: parent.width; Text { width: 160; text: modelData.name; color: Color.foreground; elide: Text.ElideRight } Text { width: 150; text: modelData.enabled ? "Enabled" : "Disabled"; color: Qt.darker(Color.foreground, 1.5) } Button { text: "Refresh"; onClicked: root.rpc.call("subscription.refresh", { subscriptionId:modelData.id }, function(result,error) { root.message = error ? error.message : "Updated " + (result.updated || 0) + " profiles"; root.refresh() }) } Button { text: "Delete"; onClicked: root.rpc.call("subscription.delete", { subscriptionId:modelData.id }, function() { subscriptions.items = subscriptions.items.filter(function(s) { return s.id !== modelData.id }); root.refresh() }) } } } TextField { id: subName; placeholderText: "New subscription name" } TextField { id: subUrl; placeholderText: "https://example/subscribe" } Button { text: "Add subscription"; onClicked: root.rpc.call("subscription.create", { subscription:{name:subName.text, url:subUrl.text, enabled:true, autoUpdate:"daily"} }, function(result,error) { if (!error) { subscriptions.items = subscriptions.items.concat([{id:result.subscriptionId,name:subName.text,url:subUrl.text,enabled:true}]); subName.text=""; subUrl.text="" } }) } }
   }

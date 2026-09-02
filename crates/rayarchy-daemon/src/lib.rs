@@ -203,7 +203,8 @@ impl Daemon {
         match method {
             "system.ping" => serde_json::json!({"ok":true}),
             "system.status" => {
-                serde_json::json!({"connected": self.connected.lock().await.is_some(), "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
+                let profile_id = *self.connected.lock().await;
+                serde_json::json!({"connected": profile_id.is_some(), "profileId": profile_id, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
             }
             "system.capabilities" => {
                 serde_json::json!({"xray":command_exists("xray"),"singBox":command_exists("sing-box"),"systemProxy":true,"tun":false})
@@ -254,6 +255,26 @@ impl Daemon {
                     .status()
                     .await;
                 let row = serde_json::json!({"kind":"proxy","ok":result.map(|s|s.success()).unwrap_or(false),"latencyMs":start.elapsed().as_millis()});
+                self.record_test(row.clone()).await;
+                row
+            }
+            "test.speed" => {
+                let port = self.db.lock().await.settings.local_port;
+                let start = std::time::Instant::now();
+                let result = tokio::process::Command::new("curl")
+                    .args(["-fsS", "-o", "/dev/null", "--max-time", "20", "--proxy"])
+                    .arg(format!("http://127.0.0.1:{port}"))
+                    .arg("https://speed.cloudflare.com/__down?bytes=25000000")
+                    .status()
+                    .await;
+                let seconds = start.elapsed().as_secs_f64();
+                let ok = result.map(|s| s.success()).unwrap_or(false);
+                let mbps = if ok && seconds > 0.0 {
+                    200.0 / seconds
+                } else {
+                    0.0
+                };
+                let row = serde_json::json!({"kind":"speed","ok":ok,"megabitsPerSecond":mbps,"durationMs":start.elapsed().as_millis()});
                 self.record_test(row.clone()).await;
                 row
             }
