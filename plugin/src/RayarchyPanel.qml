@@ -1,17 +1,15 @@
 import QtQuick
+import qs.Ui
 import qs.Commons
 
-Item {
+Panel {
     id: root
-    property var panel: null
-    function open(payloadJson) {
-        visible = true;
-    }
-    function close() {
-        visible = false;
-    }
-    visible: false
-    anchors.fill: parent
+    moduleName: "com.drunkleen.rayarchy"
+    ipcTarget: "com.drunkleen.rayarchy"
+    manageIpc: false
+    property var anchorItem: null
+    property var hostWidget: null
+    readonly property var barIdentity: hostWidget || root
     RayarchyRpc {
         id: rpc
     }

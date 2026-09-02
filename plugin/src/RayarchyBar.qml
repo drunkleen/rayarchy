@@ -1,20 +1,47 @@
 import QtQuick
+import Quickshell
 import qs.Commons
+import qs.Ui
 
-Item {
+BarWidget {
     id: root
-    implicitWidth: 92
-    implicitHeight: 28
-    Text {
-        anchors.centerIn: parent
-        text: "Rayarchy"
-        color: Color.foreground
-        font.family: "monospace"
+    moduleName: "com.drunkleen.rayarchy"
+    implicitWidth: button.implicitWidth
+    implicitHeight: button.implicitHeight
+    function injectPanel() {
+        if (!panelLoader.item)
+            return;
+        panelLoader.item.anchorItem = button;
+        panelLoader.item.hostWidget = root;
+        panelLoader.item.bar = root.bar;
     }
-    MouseArea {
+    function open() {
+        if (panelLoader.item)
+            panelLoader.item.open();
+    }
+    function close() {
+        if (panelLoader.item)
+            panelLoader.item.close();
+    }
+    readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
+    Loader {
+        id: panelLoader
+        active: true
+        source: Qt.resolvedUrl("RayarchyPanel.qml")
+        visible: false
+        onLoaded: root.injectPanel()
+    }
+    WidgetButton {
+        id: button
         anchors.fill: parent
-        onClicked: if (rootPanel && rootPanel.open)
-            rootPanel.open("{}")
+        bar: root.bar
+        text: "󰖟"
+        labelVisible: true
+        hasVisualContent: true
+        Accessible.name: "Open Rayarchy proxy manager"
+        onPressed: function (mouseButton) {
+            if (mouseButton === Qt.LeftButton)
+                root.open();
+        }
     }
-    property var rootPanel: null
 }
