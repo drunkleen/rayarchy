@@ -743,6 +743,15 @@ impl Daemon {
                 let Some(raw) = raw else {
                     return serde_json::json!({"error":"raw payload is required"});
                 };
+                let trimmed = raw.trim();
+                let valid = if trimmed.starts_with('{') || trimmed.starts_with('[') {
+                    serde_json::from_str::<serde_json::Value>(trimmed).is_ok()
+                } else {
+                    rayarchy_core::import::parse_input(trimmed).is_ok()
+                };
+                if !valid {
+                    return serde_json::json!({"error":"raw payload is not valid JSON or a supported profile format"});
+                }
                 let mut db = self.db.lock().await;
                 let Some(profile) = db.profiles.iter_mut().find(|p| Some(p.id) == id) else {
                     return serde_json::json!({"error":"profile not found"});
@@ -1174,6 +1183,37 @@ mod tests {
             )
             .await;
         assert!(result.get("error").is_some());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn raw_profile_updates_require_supported_syntax() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Raw".into(),
+            server: Some("raw.example".into()),
+            ..Default::default()
+        };
+        let id = profile.id;
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        let bad = daemon
+            .dispatch(
+                "profile.raw.update",
+                serde_json::json!({"profileId":id,"raw":"not a profile"}),
+            )
+            .await;
+        assert!(bad.get("error").is_some());
+        let good = daemon
+            .dispatch(
+                "profile.raw.update",
+                serde_json::json!({"profileId":id,"raw":"vless://id@raw.example:443"}),
+            )
+            .await;
+        assert_eq!(good["ok"], true);
         let _ = std::fs::remove_file(path);
     }
 
