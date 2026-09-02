@@ -14,6 +14,7 @@ Item {
   property bool connected: false
   property string selectedId: ""
   property string message: ""
+  property string subscriptionSummary: ""
   function refresh() {
     if (!root.rpc) return
     root.rpc.call("profile.list", {}, function(result, error) {
@@ -59,7 +60,12 @@ Item {
   function refreshSubscriptions() {
     if (!root.rpc) return
     root.rpc.call("subscription.list", {}, function(result, error) {
-      if (!error) subscriptions.items = result || []
+      if (!error) {
+        subscriptions.items = result || []
+        var errors = subscriptions.items.filter(function(s) { return !!s.lastError }).length
+        var enabled = subscriptions.items.filter(function(s) { return !!s.enabled }).length
+        root.subscriptionSummary = subscriptions.items.length + " sources • " + enabled + " enabled" + (errors ? " • " + errors + " with errors" : "")
+      }
       else root.message = error.message || "Could not load subscriptions"
     })
   }
@@ -120,7 +126,8 @@ Item {
     }
     Button { text: "Add profile"; onClicked: addDialog.open() }
     Button { text: "Subscriptions"; onClicked: { root.refreshSubscriptions(); subscriptions.open() } }
-    Button { text: "Subscription status"; onClicked: { root.rpc.call("subscription.list", {}, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); subscriptionStatusLoader.item.open() }) } }
+    Button { text: "Subscription status"; onClicked: { root.rpc.call("subscription.list", {}, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); if (!error) root.refreshSubscriptions(); subscriptionStatusLoader.item.open() }) } }
+    Text { text: root.subscriptionSummary; visible: text !== ""; color: root.subscriptionSummary.indexOf("errors") >= 0 ? "#ef6a6a" : Qt.darker(Color.foreground, 1.5) }
     Button { text: "Settings"; onClicked: settings.open() }
     Button { text: "Logs"; onClicked: { if (root.rpc) root.rpc.call("system.logs", {limit:200}, function(result,error) { logsText.text=error ? error.message : (result.lines || []).join("\n"); logs.open() }) } }
     Button { text: "Routing"; onClicked: routing.open() }
