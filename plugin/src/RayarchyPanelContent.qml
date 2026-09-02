@@ -93,6 +93,7 @@ Item {
   Connections { target: root.rpc; function onConnectedChanged() { if (root.rpc.connected) root.refresh() } }
   Timer { interval: 2000; repeat: true; running: root.visible; triggeredOnStart: true; onTriggered: root.refreshStatus() }
   Timer { interval: 1000; repeat: true; running: subscriptions.visible; triggeredOnStart: true; onTriggered: root.refreshSubscriptions() }
+  Timer { id: settingsMessageTimer; interval: 3500; repeat: false; onTriggered: root.message = "" }
   Rectangle { anchors.fill: parent; color: Color.background }
   Loader { id: subscriptionStatusLoader; sourceComponent: Component { Dialog { modal: true; title: "Subscription status"; standardButtons: Dialog.Close; contentItem: TextArea { id: statusText; width: 520; height: 300; readOnly: true; wrapMode: TextEdit.NoWrap; selectByMouse: true } } } }
   Loader { id: rawEditorLoader; sourceComponent: Component { Dialog { modal: true; title: "Raw profile configuration"; standardButtons: Dialog.Save | Dialog.Cancel; property string profileId: ""; contentItem: TextArea { id: rawText; width: 560; height: 320; wrapMode: TextEdit.NoWrap; selectByMouse: true } onAccepted: root.rpc.call("profile.raw.update", { profileId: rawEditorLoader.item.profileId, raw: rawText.text }, function(result, error) { root.message = error ? error.message : "Raw configuration saved"; if (!error) rawEditorLoader.item.close(); root.refresh() }) } } }
@@ -217,6 +218,7 @@ Item {
     }
     onAccepted: { var localPort = Number(port.text); var hours = Number(retention.text); if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535) { root.message = "Local proxy port must be between 1 and 65535"; settings.open(); return } if (!Number.isInteger(hours) || hours < 1 || hours > 720) { root.message = "Health retention must be between 1 and 720 hours"; settings.open(); return } if (root.rpc) root.rpc.call("settings.update", { settings: { connectionMode: mode.currentText, preferredCore: core.currentText, localPort: localPort, healthRetentionHours: hours, killSwitch: false, dnsLeakProtection: dns.checked, lanBypass: lan.checked } }, function(result, error) {
       root.message = error ? error.message : "Settings saved"
+      if (!error) settingsMessageTimer.restart()
       if (error) settings.open()
     }) }
   }
