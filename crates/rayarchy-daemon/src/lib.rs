@@ -1115,9 +1115,15 @@ impl Daemon {
                 let id = params["subscriptionId"]
                     .as_str()
                     .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let Some(id) = id else {
+                    return serde_json::json!({"error":"invalid subscription id"});
+                };
                 let mut db = self.db.lock().await;
-                db.subscriptions.retain(|s| Some(s.id) != id);
-                db.profiles.retain(|p| p.source_id != id);
+                if !db.subscriptions.iter().any(|s| s.id == id) {
+                    return serde_json::json!({"error":"subscription not found"});
+                }
+                db.subscriptions.retain(|s| s.id != id);
+                db.profiles.retain(|p| p.source_id != Some(id));
                 drop(db);
                 let _ = self.save().await;
                 serde_json::json!({"ok":true})
@@ -1466,6 +1472,14 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+        assert!(daemon
+            .dispatch(
+                "subscription.delete",
+                serde_json::json!({"subscriptionId":"not-a-uuid"}),
+            )
+            .await
+            .get("error")
+            .is_some());
         let _ = std::fs::remove_file(path);
     }
 
