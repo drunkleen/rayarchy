@@ -4,7 +4,7 @@
 - [ ] Omarchy manifest, bar widget, panel, and theme tokens
 - [ ] Rust workspace, JSON-RPC Unix socket, user systemd service
 - [x] User service and source-checkout setup installer
-- [ ] Reproducible release archive and checksum installer
+- [x] Reproducible release archive and checksum artifact workflow
 
 ## v2rayN Linux parity
 - [x] Profile list: search, sort, favorites, groups, reorder, enable/disable

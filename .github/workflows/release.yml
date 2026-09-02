@@ -1,0 +1,29 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release binaries
+        run: cargo build --release --workspace
+      - name: Assemble archive
+        run: |
+          mkdir -p dist/rayarchy
+          install -Dm755 target/release/rayarchy dist/rayarchy/rayarchy
+          install -Dm755 target/release/rayarchy-daemon dist/rayarchy/rayarchy-daemon
+          install -Dm755 setup.sh dist/rayarchy/setup.sh
+          install -Dm755 packaging/uninstall.sh dist/rayarchy/uninstall.sh
+          cp -r manifest.json plugin dist/rayarchy/
+          tar -C dist -czf "rayarchy-${GITHUB_REF_NAME}-x86_64.tar.gz" rayarchy
+          sha256sum "rayarchy-${GITHUB_REF_NAME}-x86_64.tar.gz" > "rayarchy-${GITHUB_REF_NAME}-x86_64.tar.gz.sha256"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            rayarchy-${{ github.ref_name }}-x86_64.tar.gz
+            rayarchy-${{ github.ref_name }}-x86_64.tar.gz.sha256
