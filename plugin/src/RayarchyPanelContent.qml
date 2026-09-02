@@ -80,6 +80,10 @@ Item {
       return stamp + " • " + kind + " • " + result + latency + detail;
     }).join("\n");
   }
+  function bulkHealthSummary() {
+    var passing = root.bulkResults.filter(function (r) { return r.ok }).length;
+    return "Health: " + passing + "/" + root.bulkResults.length + " passing • " + (root.bulkResults.length - passing) + " failing";
+  }
   function cycleBulkSort() {
     root.bulkSortMode = root.bulkSortMode === "fastest" ? "successful" : (root.bulkSortMode === "successful" ? "failed" : "fastest")
   }
@@ -278,7 +282,7 @@ Item {
     Button { text: "Test all proxy connections"; onClicked: { root.rpc.call("test.bulk.proxy", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { if (!error) root.bulkResults = result.results || []; subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : root.formatBulkResults(root.bulkResults); subscriptionStatusLoader.item.open() }) } }
     Button { text: "Use best working profile"; enabled: root.bulkResults.some(function(r) { return r.ok }); onClicked: { var candidates = root.bulkResults.filter(function(r) { return r.ok }).sort(function(a, b) { return Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999) }); if (candidates.length) { root.selectedId = candidates[0].profileId; root.message = "Selected " + candidates[0].name + " (" + candidates[0].latencyMs + " ms)" } } }
     Button { text: "Sort results: " + root.bulkSortMode; enabled: root.bulkResults.length > 0; onClicked: { root.cycleBulkSort(); subscriptionStatusLoader.item.contentItem.children[0].text = root.formatBulkResults(root.bulkResults) } }
-    Text { visible: root.bulkResults.length > 0; text: { var passing = root.bulkResults.filter(function(r) { return r.ok }).length; return "Health: " + passing + "/" + root.bulkResults.length + " passing • " + (root.bulkResults.length - passing) + " failing" } color: root.bulkResults.every(function(r) { return r.ok }) ? "#74d99f" : "#efb06a" }
+    Text { visible: root.bulkResults.length > 0; text: root.bulkHealthSummary(); color: root.bulkResults.every(function(r) { return r.ok }) ? "#74d99f" : "#efb06a" }
     Button { text: "Connect selected profile"; enabled: root.selectedId !== "" && !root.connected; onClicked: { root.rpc.call("profile.connect", { profileId: root.selectedId }, function(result, error) { root.message = error ? error.message : "Connection established"; if (!error) root.refreshStatus(); subscriptionStatusLoader.item.close() }) } }
     Button { text: "Cancel active test/connection"; visible: root.diagnosticRunning || root.connecting; enabled: root.diagnosticRunning || root.connecting; onClicked: { root.rpc.call("profile.connect.cancel", {}, function(result, error) { root.diagnosticRunning = false; root.connecting = false; root.message = error ? error.message : "Operation cancelled"; root.refreshStatus() }) } }
     Button { text: "Cancel bulk test"; onClicked: root.rpc.call("test.bulk.cancel", {}, function(result, error) { root.message = error ? error.message : "Bulk test cancellation requested" }) }
