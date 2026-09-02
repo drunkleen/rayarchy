@@ -23,3 +23,14 @@ installed and enabled by a future release.
 
 Then run the backend setup from the installed checkout. Development status and
 the complete parity checklist are in `TODO.md` and `instructions.md`.
+
+## Import and backup workflows
+
+Open **Add profile**, paste a v2rayN URI, JSON, YAML, WireGuard configuration,
+or subscription payload, then choose **Preview parsed profiles**. Rayarchy
+shows the parsed records and parser errors before **OK** commits anything.
+
+Use **Backup** to export the complete local state as JSON. Restore accepts only
+valid Rayarchy state and refuses while a profile is connected; malformed input
+is rejected without changing the existing database. Keep exported backups
+private because they may contain credentials.
