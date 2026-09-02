@@ -380,6 +380,31 @@ impl Daemon {
                 self.record_test(row.clone()).await;
                 row
             }
+            "test.ip" => {
+                let port = self.db.lock().await.settings.local_port;
+                let target = "https://api.ipify.org";
+                let proxy = tokio::process::Command::new("curl")
+                    .args(["-fsS", "--max-time", "8", "--proxy"])
+                    .arg(format!("http://127.0.0.1:{port}"))
+                    .arg(target)
+                    .output()
+                    .await;
+                let direct = tokio::process::Command::new("curl")
+                    .args(["-fsS", "--max-time", "8", target])
+                    .output()
+                    .await;
+                let proxy_ip = proxy
+                    .ok()
+                    .filter(|o| o.status.success())
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .filter(|s| !s.is_empty());
+                let direct_ip = direct
+                    .ok()
+                    .filter(|o| o.status.success())
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .filter(|s| !s.is_empty());
+                serde_json::json!({"proxyIp":proxy_ip,"directIp":direct_ip,"protected":proxy_ip.is_some() && proxy_ip != direct_ip})
+            }
             "test.speed" => {
                 let port = self.db.lock().await.settings.local_port;
                 let start = std::time::Instant::now();
