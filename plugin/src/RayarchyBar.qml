@@ -8,32 +8,16 @@ BarWidget {
     moduleName: "com.drunkleen.rayarchy"
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
-    function injectPanel() {
-        if (!panelLoader.item)
-            return;
-        panelLoader.item.anchorItem = button;
-        panelLoader.item.hostWidget = root;
-        panelLoader.item.bar = root.bar;
-    }
     function open() {
-        if (panelLoader.item)
-            panelLoader.item.openFromHotkey();
+        if (root.bar && root.bar.shell && typeof root.bar.shell.toggle === "function")
+            root.bar.shell.toggle(root.moduleName, "{}");
     }
     function close() {
-        if (panelLoader.item)
-            panelLoader.item.close();
+        if (root.bar && root.bar.shell && typeof root.bar.shell.close === "function")
+            root.bar.shell.close(root.moduleName);
     }
     function togglePanel() {
-        if (panelLoader.item)
-            panelLoader.item.toggle();
-    }
-    readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
-    Loader {
-        id: panelLoader
-        active: true
-        source: Qt.resolvedUrl("RayarchyPanel.qml")
-        visible: false
-        onLoaded: root.injectPanel()
+        root.open();
     }
     BarIconButton {
         id: button

@@ -9,7 +9,7 @@
   "activation": "on-demand",
   "entryPoints": {
     "barWidget": "plugin/src/RayarchyBar.qml",
-    "panel": "plugin/src/RayarchyPanel.qml"
+    "panel": "plugin/src/App.qml"
   },
   "barWidget": {
     "displayName": "Rayarchy",
