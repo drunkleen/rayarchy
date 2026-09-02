@@ -776,6 +776,26 @@ impl Daemon {
                 let _ = self.save().await;
                 serde_json::json!({"ok":true})
             }
+            "profile.fields.update" => {
+                let id = params["profileId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let fields = params
+                    .get("fields")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                if !fields.is_object() {
+                    return serde_json::json!({"error":"profile fields must be a JSON object"});
+                }
+                let mut db = self.db.lock().await;
+                let Some(profile) = db.profiles.iter_mut().find(|p| Some(p.id) == id) else {
+                    return serde_json::json!({"error":"profile not found"});
+                };
+                profile.fields = fields;
+                drop(db);
+                let _ = self.save().await;
+                serde_json::json!({"ok":true})
+            }
             "profile.favorite" => {
                 let id = params["profileId"]
                     .as_str()
