@@ -660,10 +660,9 @@ impl Daemon {
                 let favorites_only = params["favoritesOnly"].as_bool().unwrap_or(false);
                 let enabled_only = params["enabledOnly"].as_bool().unwrap_or(false);
                 let sort = params["sort"].as_str().unwrap_or("manual");
-                let mut profiles: Vec<_> = self
-                    .db
-                    .lock()
-                    .await
+                let db = self.db.lock().await;
+                let history = db.test_history.clone();
+                let mut profiles: Vec<_> = db
                     .profiles
                     .iter()
                     .filter(|profile| {
@@ -681,6 +680,7 @@ impl Daemon {
                     })
                     .cloned()
                     .collect();
+                drop(db);
                 match sort {
                     "name" => profiles.sort_by_key(|profile| profile.name.to_lowercase()),
                     "server" => profiles.sort_by_key(|profile| {
@@ -689,7 +689,18 @@ impl Daemon {
                     "favorites" => profiles.sort_by_key(|profile| !profile.favorite),
                     _ => {}
                 }
-                serde_json::to_value(profiles).unwrap_or_default()
+                let mut output = Vec::with_capacity(profiles.len());
+                for profile in profiles {
+                    let mut value = serde_json::to_value(profile).unwrap_or_default();
+                    if let Some(test) = history.iter().rev().find(|row| {
+                        row.get("profileId").and_then(|id| id.as_str())
+                            == value.get("id").and_then(|id| id.as_str())
+                    }) {
+                        value["lastTest"] = test.clone();
+                    }
+                    output.push(value);
+                }
+                serde_json::Value::Array(output)
             }
             "profile.get" => {
                 let id = params["profileId"]
@@ -1197,6 +1208,32 @@ mod tests {
                 .await["name"],
             "Edited"
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn profile_list_includes_latest_persisted_test_result() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Health".into(),
+            server: Some("health.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        let id = profile.id;
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        daemon
+            .record_test(
+                serde_json::json!({"kind":"bulk-proxy","profileId":id,"ok":true,"latencyMs":42}),
+            )
+            .await;
+        let listed = daemon.dispatch("profile.list", serde_json::json!({})).await;
+        assert_eq!(listed[0]["lastTest"]["ok"], true);
+        assert_eq!(listed[0]["lastTest"]["latencyMs"], 42);
         let _ = std::fs::remove_file(path);
     }
 
