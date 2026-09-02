@@ -8,7 +8,6 @@ Dialog {
     modal: true
     title: "Subscription refresh history"
     standardButtons: Dialog.Close
-    Accessible.name: "Subscription refresh history"
 
     contentItem: ListView {
         width: 560

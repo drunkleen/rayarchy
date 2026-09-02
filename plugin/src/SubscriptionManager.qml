@@ -12,7 +12,6 @@ Dialog {
     modal: true
     title: "Subscriptions"
     standardButtons: Dialog.Close
-    Accessible.name: "Manage subscriptions"
 
     function load() {
         if (rpc)
