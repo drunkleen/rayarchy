@@ -6,15 +6,45 @@ Item {
   id: root
   property var rpc: null
   property var profiles: []
+  property var allProfiles: []
   property string query: ""
+  property string groupFilter: ""
+  property string sortMode: "manual"
+  property bool favoritesOnly: false
   property bool connected: false
   property string selectedId: ""
   property string message: ""
   function refresh() {
     if (!root.rpc) return
-    root.rpc.call("profile.list", {}, function(result, error) { if (!error) root.profiles = result || [] })
+    root.rpc.call("profile.list", {}, function(result, error) {
+      if (!error) root.allProfiles = result || []
+    })
+    root.rpc.call("profile.list", { query: root.query, group: root.groupFilter, sort: root.sortMode, favoritesOnly: root.favoritesOnly }, function(result, error) {
+      if (error) root.message = error.message
+      else root.profiles = result || []
+    })
     root.rpc.call("system.status", {}, function(result, error) {
       if (!error) { root.connected = !!result.connected; root.selectedId = result.profileId || root.selectedId }
+    })
+  }
+  function groups() {
+    var values = ["All groups"]
+    root.allProfiles.forEach(function(profile) {
+      var group = String(profile.group || "").trim()
+      if (group && values.indexOf(group) < 0) values.push(group)
+    })
+    return values
+  }
+  function moveProfile(profileId, delta) {
+    var ids = root.allProfiles.map(function(profile) { return profile.id })
+    var from = ids.indexOf(profileId)
+    var to = from + delta
+    if (from < 0 || to < 0 || to >= ids.length) return
+    var moved = ids.splice(from, 1)[0]
+    ids.splice(to, 0, moved)
+    root.rpc.call("profile.reorder", { profileIds: ids }, function(result, error) {
+      root.message = error ? error.message : "Profile order saved"
+      if (!error) root.refresh()
     })
   }
   Component.onCompleted: root.refresh()
@@ -23,20 +53,28 @@ Item {
   Column {
     anchors.fill: parent; anchors.margins: 18; spacing: 12
     Row { spacing: 12; Text { text: "Rayarchy"; color: Color.foreground; font.bold: true; font.pixelSize: 22 } Button { text: root.connected ? "Disconnect" : "Connect"; enabled: root.selectedId !== ""; onClicked: if (root.rpc) root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : { profileId: root.selectedId }, function(result, error) { if (!error) root.connected = !root.connected }) } }
-    TextField { width: parent.width; placeholderText: "Search profiles…"; onTextChanged: root.query = text }
+    TextField { width: parent.width; placeholderText: "Search profiles…"; onTextChanged: { root.query = text; root.refresh() } }
+    Row {
+      spacing: 8
+      ComboBox { id: groupPicker; model: root.groups(); onActivated: { root.groupFilter = currentIndex === 0 ? "" : currentText; root.refresh() } }
+      ComboBox { model: ["manual", "name", "server", "favorites"]; onActivated: { root.sortMode = currentText; root.refresh() } }
+      CheckBox { text: "Favorites"; checked: root.favoritesOnly; onToggled: { root.favoritesOnly = checked; root.refresh() } }
+    }
     Text { visible: root.profiles.length === 0; text: "No profiles yet. Add a profile or subscription to begin."; color: Color.foreground }
     Text { visible: root.message !== ""; text: root.message; color: Color.accent; width: parent.width; wrapMode: Text.WordWrap }
     ListView {
       width: parent.width; height: Math.max(80, parent.height - y - 54)
-      model: root.profiles.filter(function(p) { return !root.query || String(p.name).toLowerCase().indexOf(root.query.toLowerCase()) >= 0 })
+      model: root.profiles
       delegate: Rectangle {
         width: ListView.view.width; height: 58; color: "transparent"; border.color: Color.foreground; border.width: 1
         Row {
           anchors.fill: parent; anchors.margins: 8; spacing: 10
-          Column { width: parent.width - 130; Text { text: modelData.name; color: Color.foreground; elide: Text.ElideRight } Text { text: (modelData.server || "") + (modelData.port ? ":" + modelData.port : ""); color: Qt.darker(Color.foreground, 1.5) } }
-          Button { text: "★"; onClicked: root.rpc.call("profile.favorite", { profileId: modelData.id, favorite: !modelData.favorite }, function() { root.refresh() }) }
+          Column { width: parent.width - 230; Text { text: modelData.name; color: Color.foreground; elide: Text.ElideRight } Text { text: (modelData.group ? modelData.group + " • " : "") + (modelData.server || "") + (modelData.port ? ":" + modelData.port : ""); color: Qt.darker(Color.foreground, 1.5) } }
+          Button { text: modelData.favorite ? "★" : "☆"; onClicked: root.rpc.call("profile.favorite", { profileId: modelData.id, favorite: !modelData.favorite }, function(result, error) { root.message = error ? error.message : ""; if (!error) root.refresh() }) }
+          Button { text: "↑"; enabled: root.sortMode === "manual" && root.query === "" && root.groupFilter === "" && !root.favoritesOnly; onClicked: root.moveProfile(modelData.id, -1) }
+          Button { text: "↓"; enabled: root.sortMode === "manual" && root.query === "" && root.groupFilter === "" && !root.favoritesOnly; onClicked: root.moveProfile(modelData.id, 1) }
           Button { text: "Use"; onClicked: root.selectedId = modelData.id }
-          Button { text: modelData.enabled ? "On" : "Off"; onClicked: root.rpc.call("profile.enable", { profileId:modelData.id, enabled:!modelData.enabled }, function() { root.refresh() }) }
+          Button { text: modelData.enabled ? "On" : "Off"; onClicked: root.rpc.call("profile.enable", { profileId:modelData.id, enabled:!modelData.enabled }, function(result, error) { root.message = error ? error.message : ""; if (!error) root.refresh() }) }
           Button { text: "•••"; onClicked: details.open() }
         }
         Dialog {
@@ -48,13 +86,13 @@ Item {
             Button { text: "Proxy ping"; onClicked: root.rpc.call("test.proxy", {}, function(result,error) { root.message = error ? error.message : ((result.ok ? "Proxy reachable" : "Proxy failed") + " • " + (result.latencyMs || "n/a") + " ms") }) }
             Button { text: "Speed test"; onClicked: root.rpc.call("test.speed", {}, function(result,error) { root.message = error ? error.message : ((result.ok ? "Speed" : "Speed test failed") + " • " + Number(result.megabitsPerSecond || 0).toFixed(1) + " Mbps") }) }
             Button { text: "Test history"; onClicked: { details.close(); root.rpc.call("test.history", {}, function(result,error) { historyText.text = error ? error.message : JSON.stringify(result, null, 2); history.open() }) } }
-            Button { text: "Edit"; onClicked: { details.close(); nameEdit.text=modelData.name; serverEdit.text=modelData.server || ""; portEdit.text=String(modelData.port || ""); fieldsEdit.text=JSON.stringify(modelData.fields || {}, null, 2); edit.open() } }
+            Button { text: "Edit"; onClicked: { details.close(); nameEdit.text=modelData.name; groupEdit.text=modelData.group || ""; serverEdit.text=modelData.server || ""; portEdit.text=String(modelData.port || ""); fieldsEdit.text=JSON.stringify(modelData.fields || {}, null, 2); edit.open() } }
             Button { text: "Export"; onClicked: root.rpc.call("profile.export", { profileId: modelData.id }, function(result, error) { if (!error) exportText.text=result.payload || ""; exportDialog.open() }) }
             Button { text: "QR / share"; onClicked: root.rpc.call("profile.qr", { profileId: modelData.id }, function(result, error) { if (!error) qrText.text=result.payload || ""; qrDialog.open() }) }
             Button { text: "Delete"; onClicked: { details.close(); pendingDeleteId = modelData.id; pendingDeleteName = modelData.name; confirmDelete.open() } }
           }
         }
-        Dialog { id: edit; title: "Edit profile"; modal: true; standardButtons: Dialog.Save | Dialog.Cancel; contentItem: Column { spacing: 8; TextField { id: nameEdit; placeholderText: "Profile name" } TextField { id: serverEdit; placeholderText: "Server" } TextField { id: portEdit; placeholderText: "Port"; inputMethodHints: Qt.ImhDigitsOnly } TextArea { id: fieldsEdit; width: 460; height: 180; placeholderText: "Protocol fields (JSON)"; selectByMouse: true } } onAccepted: { var fields; try { fields=JSON.parse(fieldsEdit.text || "{}"); } catch(e) { root.message="Invalid protocol fields JSON"; edit.open(); return } root.rpc.call("profile.update", { profile: { id:modelData.id, name:nameEdit.text, protocol:modelData.protocol, core:modelData.core, enabled:modelData.enabled, favorite:modelData.favorite, server:serverEdit.text, port:Number(portEdit.text), sourceId:modelData.sourceId, fields:fields, raw:modelData.raw } }, function(result,error) { root.message=error ? error.message : "Profile saved"; if (!error) root.refresh() }) }
+        Dialog { id: edit; title: "Edit profile"; modal: true; standardButtons: Dialog.Save | Dialog.Cancel; contentItem: Column { spacing: 8; TextField { id: nameEdit; placeholderText: "Profile name" } TextField { id: groupEdit; placeholderText: "Group (optional)" } TextField { id: serverEdit; placeholderText: "Server" } TextField { id: portEdit; placeholderText: "Port"; inputMethodHints: Qt.ImhDigitsOnly } TextArea { id: fieldsEdit; width: 460; height: 180; placeholderText: "Protocol fields (JSON)"; selectByMouse: true } } onAccepted: { var fields; try { fields=JSON.parse(fieldsEdit.text || "{}"); } catch(e) { root.message="Invalid protocol fields JSON"; edit.open(); return } root.rpc.call("profile.update", { profile: { id:modelData.id, name:nameEdit.text, protocol:modelData.protocol, core:modelData.core, enabled:modelData.enabled, favorite:modelData.favorite, group:groupEdit.text.trim(), server:serverEdit.text, port:Number(portEdit.text), sourceId:modelData.sourceId, fields:fields, raw:modelData.raw } }, function(result,error) { root.message=error ? error.message : "Profile saved"; if (!error) root.refresh() }) }
         Dialog { id: exportDialog; title: "Export payload"; modal: true; standardButtons: Dialog.Close; contentItem: TextArea { id: exportText; readOnly: true; wrapMode: TextEdit.Wrap; selectByMouse: true } }
         Dialog { id: qrDialog; title: "QR payload"; modal: true; standardButtons: Dialog.Close; contentItem: Column { spacing: 8; Text { text: "Use this payload with a QR scanner or copy it to another device."; color: Color.foreground; wrapMode: Text.WordWrap } TextArea { id: qrText; width: 400; height: 180; readOnly: true; wrapMode: TextEdit.Wrap; selectByMouse: true } } }
       }

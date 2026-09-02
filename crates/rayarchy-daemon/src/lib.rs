@@ -300,7 +300,41 @@ impl Daemon {
                 serde_json::json!({"ok":true})
             }
             "profile.list" => {
-                serde_json::to_value(&self.db.lock().await.profiles).unwrap_or_default()
+                let query = params["query"].as_str().unwrap_or("").trim().to_lowercase();
+                let group = params["group"].as_str().unwrap_or("");
+                let favorites_only = params["favoritesOnly"].as_bool().unwrap_or(false);
+                let enabled_only = params["enabledOnly"].as_bool().unwrap_or(false);
+                let sort = params["sort"].as_str().unwrap_or("manual");
+                let mut profiles: Vec<_> = self
+                    .db
+                    .lock()
+                    .await
+                    .profiles
+                    .iter()
+                    .filter(|profile| {
+                        (query.is_empty()
+                            || profile.name.to_lowercase().contains(&query)
+                            || profile
+                                .server
+                                .as_deref()
+                                .unwrap_or("")
+                                .to_lowercase()
+                                .contains(&query))
+                            && (group.is_empty() || profile.group == group)
+                            && (!favorites_only || profile.favorite)
+                            && (!enabled_only || profile.enabled)
+                    })
+                    .cloned()
+                    .collect();
+                match sort {
+                    "name" => profiles.sort_by_key(|profile| profile.name.to_lowercase()),
+                    "server" => profiles.sort_by_key(|profile| {
+                        profile.server.as_deref().unwrap_or("").to_lowercase()
+                    }),
+                    "favorites" => profiles.sort_by_key(|profile| !profile.favorite),
+                    _ => {}
+                }
+                serde_json::to_value(profiles).unwrap_or_default()
             }
             "profile.get" => {
                 let id = params["profileId"]
@@ -667,6 +701,74 @@ mod tests {
                 .await["name"],
             "Edited"
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn profile_list_filters_sorts_and_reorders() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let alpha = Profile {
+            name: "Alpha".into(),
+            group: "Work".into(),
+            server: Some("alpha.example".into()),
+            ..Default::default()
+        };
+        let alpha_id = alpha.id;
+        let beta = Profile {
+            name: "Beta".into(),
+            group: "Home".into(),
+            server: Some("beta.example".into()),
+            ..Default::default()
+        };
+        let beta_id = beta.id;
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":beta}))
+            .await;
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":alpha}))
+            .await;
+        assert_eq!(
+            daemon
+                .dispatch(
+                    "profile.favorite",
+                    serde_json::json!({"profileId":alpha_id,"favorite":true}),
+                )
+                .await["ok"],
+            true
+        );
+        assert_eq!(
+            daemon
+                .dispatch(
+                    "profile.enable",
+                    serde_json::json!({"profileId":beta_id,"enabled":false}),
+                )
+                .await["ok"],
+            true
+        );
+
+        let filtered = daemon
+            .dispatch(
+                "profile.list",
+                serde_json::json!({"group":"Work","favoritesOnly":true}),
+            )
+            .await;
+        assert_eq!(filtered.as_array().unwrap().len(), 1);
+        assert_eq!(filtered[0]["name"], "Alpha");
+
+        let sorted = daemon
+            .dispatch("profile.list", serde_json::json!({"sort":"name"}))
+            .await;
+        assert_eq!(sorted[0]["name"], "Alpha");
+        daemon
+            .dispatch(
+                "profile.reorder",
+                serde_json::json!({"profileIds":[alpha_id, beta_id]}),
+            )
+            .await;
+        let reordered = daemon.dispatch("profile.list", serde_json::json!({})).await;
+        assert_eq!(reordered[0]["id"], alpha_id.to_string());
         let _ = std::fs::remove_file(path);
     }
 

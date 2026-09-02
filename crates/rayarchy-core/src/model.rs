@@ -21,6 +21,8 @@ pub struct Profile {
     #[serde(default)]
     pub favorite: bool,
     #[serde(default)]
+    pub group: String,
+    #[serde(default)]
     pub server: Option<String>,
     #[serde(default)]
     pub port: Option<u16>,
@@ -41,6 +43,7 @@ impl Default for Profile {
             core: Core::Auto,
             enabled: true,
             favorite: false,
+            group: String::new(),
             server: None,
             port: None,
             source_id: None,

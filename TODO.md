@@ -7,7 +7,7 @@
 - [ ] Reproducible release archive and checksum installer
 
 ## v2rayN Linux parity
-- [ ] Profile list: search, sort, favorites, groups, reorder, enable/disable
+- [x] Profile list: search, sort, favorites, groups, reorder, enable/disable
 - [ ] Add/import: URI, clipboard, JSON/YAML, WireGuard, QR payload
 - [ ] Profile editor with protocol-specific fields and raw config fallback
 - [x] Duplicate, export, share URI, QR, delete confirmation
