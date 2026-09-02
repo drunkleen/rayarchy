@@ -1,5 +1,8 @@
 # Rayarchy
 
+Current release channel: **0.1.0-beta.1**. See [docs/beta.md](docs/beta.md)
+for the install flow and known beta limits.
+
 v2rayN-inspired proxy management for the Omarchy shell. It uses the local
 `/mnt/storage/projects/v2rayN` source tree as its behavior reference while
 providing an Omarchy-native QML interface and Rust backend.

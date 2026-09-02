@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "com.drunkleen.rayarchy",
   "name": "Rayarchy",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "author": "DrunkLeen",
   "description": "v2rayN-inspired proxy manager for the Omarchy shell",
   "kinds": ["bar-widget", "panel"],
