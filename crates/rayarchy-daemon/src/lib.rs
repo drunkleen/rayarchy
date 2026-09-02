@@ -18,6 +18,11 @@ fn command_exists(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn valid_subscription_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    (trimmed.starts_with("https://") || trimmed.starts_with("http://")) && trimmed.len() > 8
+}
+
 async fn validate_core_config(
     core: rayarchy_core::protocol::Core,
     path: &std::path::Path,
@@ -728,6 +733,9 @@ impl Daemon {
                     Ok(v) => v,
                     Err(e) => return serde_json::json!({"error":e.to_string()}),
                 };
+                if !valid_subscription_url(&s.url) {
+                    return serde_json::json!({"error":"subscription URL must use http or https"});
+                }
                 let id = s.id;
                 self.db.lock().await.subscriptions.push(s);
                 let _ = self.save().await;
@@ -739,6 +747,9 @@ impl Daemon {
                     Ok(v) => v,
                     Err(e) => return serde_json::json!({"error":e.to_string()}),
                 };
+                if !valid_subscription_url(&sub.url) {
+                    return serde_json::json!({"error":"subscription URL must use http or https"});
+                }
                 let mut db = self.db.lock().await;
                 let Some(existing) = db.subscriptions.iter_mut().find(|s| s.id == sub.id) else {
                     return serde_json::json!({"error":"subscription not found"});
@@ -980,6 +991,27 @@ mod tests {
                 .len(),
             1
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn subscription_urls_are_validated_before_persistence() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let result = daemon
+            .dispatch(
+                "subscription.create",
+                serde_json::json!({"subscription":{"name":"bad","url":"file:///tmp/list"}}),
+            )
+            .await;
+        assert!(result.get("error").is_some());
+        assert!(daemon
+            .dispatch("subscription.list", serde_json::json!({}))
+            .await
+            .as_array()
+            .unwrap()
+            .is_empty());
         let _ = std::fs::remove_file(path);
     }
 
