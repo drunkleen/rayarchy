@@ -7,6 +7,7 @@ pub struct Backup {
     pub http_port: String,
     pub socks_host: String,
     pub socks_port: String,
+    pub ignore_hosts: String,
 }
 
 fn get(schema: &str, key: &str) -> String {
@@ -42,11 +43,13 @@ pub fn apply(host: &str, port: u16) -> Result<Backup, String> {
         http_port: get("org.gnome.system.proxy.http", "port"),
         socks_host: get("org.gnome.system.proxy.socks", "host"),
         socks_port: get("org.gnome.system.proxy.socks", "port"),
+        ignore_hosts: get("org.gnome.system.proxy", "ignore-hosts"),
     };
     set("org.gnome.system.proxy.http", "host", host)?;
     set("org.gnome.system.proxy.http", "port", &port.to_string())?;
     set("org.gnome.system.proxy.socks", "host", host)?;
     set("org.gnome.system.proxy.socks", "port", &port.to_string())?;
+    set("org.gnome.system.proxy", "ignore-hosts", "[]")?;
     set("org.gnome.system.proxy", "mode", "manual")?;
     Ok(backup)
 }
@@ -55,5 +58,10 @@ pub fn restore(backup: &Backup) -> Result<(), String> {
     set("org.gnome.system.proxy.http", "port", &backup.http_port)?;
     set("org.gnome.system.proxy.socks", "host", &backup.socks_host)?;
     set("org.gnome.system.proxy.socks", "port", &backup.socks_port)?;
+    set(
+        "org.gnome.system.proxy",
+        "ignore-hosts",
+        &backup.ignore_hosts,
+    )?;
     set("org.gnome.system.proxy", "mode", &backup.mode)
 }
