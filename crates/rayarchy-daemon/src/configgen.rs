@@ -67,6 +67,16 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
             if profile.protocol == Protocol::Shadowsocks && !method.is_empty() {
                 value["method"] = serde_json::Value::String(method.to_string());
             }
+            if matches!(profile.protocol, Protocol::Hysteria2 | Protocol::Tuic) {
+                if !field("congestion_control").is_empty() {
+                    value["congestion_control"] =
+                        serde_json::Value::String(field("congestion_control").to_string());
+                }
+                if !field("obfs").is_empty() {
+                    value["obfs"] =
+                        serde_json::json!({"type":field("obfs"),"password":field("obfs-password")});
+                }
+            }
             if field("security") == "tls" || field("tls") == "tls" {
                 value["tls"] = serde_json::json!({"enabled":true,"server_name":if field("sni").is_empty() { server.clone() } else { field("sni").to_string() }});
             }
@@ -205,5 +215,21 @@ mod tests {
         let config = build(&profile, Core::SingBox, "127.0.0.1", 1080);
         assert_eq!(config["outbounds"][0]["type"], "wireguard");
         assert_eq!(config["outbounds"][0]["peers"][0]["public_key"], "public");
+    }
+
+    #[test]
+    fn hysteria2_preserves_obfuscation_and_tls() {
+        let mut profile = Profile {
+            protocol: Protocol::Hysteria2,
+            server: Some("hy.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        profile.fields = serde_json::json!({"password":"secret","security":"tls","sni":"hy.example","obfs":"salamander","obfs-password":"obfs"});
+        let config = build(&profile, Core::SingBox, "127.0.0.1", 1080);
+        let outbound = &config["outbounds"][0];
+        assert_eq!(outbound["type"], "hysteria2");
+        assert_eq!(outbound["obfs"]["type"], "salamander");
+        assert_eq!(outbound["tls"]["enabled"], true);
     }
 }
