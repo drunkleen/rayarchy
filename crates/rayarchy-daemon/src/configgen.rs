@@ -64,6 +64,12 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
             if profile.protocol == Protocol::Shadowsocks && !method.is_empty() {
                 value["method"] = serde_json::Value::String(method.to_string());
             }
+            if field("security") == "tls" || field("tls") == "tls" {
+                value["tls"] = serde_json::json!({"enabled":true,"server_name":if field("sni").is_empty() { server.clone() } else { field("sni").to_string() }});
+            }
+            if field("type") == "ws" || field("network") == "ws" {
+                value["transport"] = serde_json::json!({"type":"ws","path":field("path"),"headers":{"Host":field("host")} });
+            }
             value
         }
         Core::Xray => {
@@ -83,7 +89,12 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
             } else {
                 serde_json::json!({"servers":[{"address":server,"port":server_port,"method":method,"password":password}]})
             };
-            serde_json::json!({"protocol":protocol,"tag":"proxy","settings":settings})
+            let mut value =
+                serde_json::json!({"protocol":protocol,"tag":"proxy","settings":settings});
+            if field("security") == "tls" || field("tls") == "tls" {
+                value["streamSettings"] = serde_json::json!({"network":if field("type").is_empty() { "tcp" } else { field("type") },"security":"tls","tlsSettings":{"serverName":if field("sni").is_empty() { server.clone() } else { field("sni").to_string() }}});
+            }
+            value
         }
         Core::Auto => unreachable!(),
     };
@@ -156,5 +167,26 @@ pub fn apply_rules(config: &mut serde_json::Value, core: Core, rules: &[RoutingR
             }
         }
         Core::Auto => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rayarchy_core::protocol::Protocol;
+
+    #[test]
+    fn vless_tls_websocket_transport_is_preserved() {
+        let mut profile = Profile {
+            protocol: Protocol::Vless,
+            server: Some("edge.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        profile.fields = serde_json::json!({"user":"00000000-0000-0000-0000-000000000001","security":"tls","type":"ws","path":"/ray","host":"edge.example"});
+        let config = build(&profile, Core::SingBox, "127.0.0.1", 1080);
+        let outbound = &config["outbounds"][0];
+        assert_eq!(outbound["tls"]["enabled"], true);
+        assert_eq!(outbound["transport"]["type"], "ws");
     }
 }
