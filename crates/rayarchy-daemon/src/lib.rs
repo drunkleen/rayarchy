@@ -357,7 +357,7 @@ impl Daemon {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
         let health = tokio::process::Command::new("curl")
-            .args(["-fsS", "--max-time", "8", "--proxy"])
+            .args(["-fsS", "--noproxy", "", "--max-time", "8", "--proxy"])
             .arg(format!("http://127.0.0.1:{}", settings.local_port))
             .arg("https://www.gstatic.com/generate_204")
             .output()
@@ -593,7 +593,16 @@ impl Daemon {
                 let port = self.db.lock().await.settings.local_port;
                 let start = std::time::Instant::now();
                 let result = tokio::process::Command::new("curl")
-                    .args(["-fsS", "-o", "/dev/null", "--max-time", "8", "--proxy"])
+                    .args([
+                        "-fsS",
+                        "-o",
+                        "/dev/null",
+                        "--noproxy",
+                        "",
+                        "--max-time",
+                        "8",
+                        "--proxy",
+                    ])
                     .arg(format!("http://127.0.0.1:{port}"))
                     .arg("https://www.gstatic.com/generate_204")
                     .status()
@@ -606,13 +615,13 @@ impl Daemon {
                 let port = self.db.lock().await.settings.local_port;
                 let target = "https://api.ipify.org";
                 let proxy = tokio::process::Command::new("curl")
-                    .args(["-fsS", "--max-time", "8", "--proxy"])
+                    .args(["-fsS", "--noproxy", "", "--max-time", "8", "--proxy"])
                     .arg(format!("http://127.0.0.1:{port}"))
                     .arg(target)
                     .output()
                     .await;
                 let direct = tokio::process::Command::new("curl")
-                    .args(["-fsS", "--max-time", "8", target])
+                    .args(["-fsS", "--noproxy", "*", "--max-time", "8", target])
                     .output()
                     .await;
                 let proxy_ip = proxy
@@ -631,7 +640,16 @@ impl Daemon {
                 let port = self.db.lock().await.settings.local_port;
                 let start = std::time::Instant::now();
                 let result = tokio::process::Command::new("curl")
-                    .args(["-fsS", "-o", "/dev/null", "--max-time", "20", "--proxy"])
+                    .args([
+                        "-fsS",
+                        "-o",
+                        "/dev/null",
+                        "--noproxy",
+                        "",
+                        "--max-time",
+                        "20",
+                        "--proxy",
+                    ])
                     .arg(format!("http://127.0.0.1:{port}"))
                     .arg("https://speed.cloudflare.com/__down?bytes=25000000")
                     .status()
