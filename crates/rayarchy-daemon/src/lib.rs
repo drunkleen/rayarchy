@@ -7,6 +7,7 @@ use std::{
         Arc,
     },
 };
+use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
 pub mod configgen;
 pub mod server;
@@ -234,7 +235,7 @@ impl Daemon {
             .args(["run", "-c"])
             .arg(&self.config_path)
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
             .spawn()
             .map_err(|e| format!("could not start {bin}: {e}"))?;
         self.child_pid
@@ -276,7 +277,17 @@ impl Daemon {
                 Some(child) => child,
                 None => return,
             };
+            let mut stderr = child.stderr.take();
             let _ = child.wait().await;
+            if let Some(mut stream) = stderr.take() {
+                let mut bytes = Vec::new();
+                if stream.read_to_end(&mut bytes).await.is_ok() {
+                    let text = String::from_utf8_lossy(&bytes).trim().to_string();
+                    if !text.is_empty() {
+                        daemon.log(format!("core exited: {text}")).await;
+                    }
+                }
+            }
             daemon.child_pid.store(0, Ordering::Relaxed);
             let crashed_profile = daemon.connected.lock().await.take();
             let _ = std::fs::remove_file(&daemon.config_path);
