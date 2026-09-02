@@ -39,13 +39,11 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         "diagnostics" => {
-            let status = daemon
-                .dispatch("system.status", serde_json::json!({}))
-                .await;
-            let capabilities = daemon
-                .dispatch("system.capabilities", serde_json::json!({}))
-                .await;
-            print_json(serde_json::json!({"status":status,"capabilities":capabilities}));
+            print_json(
+                daemon
+                    .dispatch("system.diagnostics", serde_json::json!({}))
+                    .await,
+            );
         }
         "import" => {
             let input = args.collect::<Vec<_>>().join(" ");

@@ -107,6 +107,18 @@ async fn validate_core_config(
     }
 }
 
+async fn command_version(name: &str) -> Option<String> {
+    let output = tokio::process::Command::new(name)
+        .arg("--version")
+        .output()
+        .await
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Database {
     profiles: Vec<Profile>,
@@ -382,6 +394,12 @@ impl Daemon {
             }
             "system.capabilities" => {
                 serde_json::json!({"xray":command_exists("xray"),"singBox":command_exists("sing-box"),"systemProxy":true,"tun":false})
+            }
+            "system.diagnostics" => {
+                let status = serde_json::json!({"connected": self.connected.lock().await.is_some(), "socket": true});
+                let xray = command_version("xray").await;
+                let sing_box = command_version("sing-box").await;
+                serde_json::json!({"status":status,"cores":{"xray":xray,"singBox":sing_box},"hints": if xray.is_none() && sing_box.is_none() { vec!["install xray or sing-box"] } else { Vec::<&str>::new() }})
             }
             "core.validate" => {
                 let id = params["profileId"]
