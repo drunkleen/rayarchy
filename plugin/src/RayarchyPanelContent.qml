@@ -481,10 +481,12 @@ Item {
         anchors.fill: parent
         anchors.margins: 12
         clip: true
+        contentWidth: availableWidth
         Column {
-            width: parent.width
+            width: availableWidth
             spacing: 12
             Row {
+                width: parent.width
                 spacing: 12
                 Text {
                     text: "Rayarchy"
@@ -534,10 +536,12 @@ Item {
                 root.refresh();
             }
         }
-        Row {
+        Flow {
+            width: parent.width
             spacing: 8
             ComboBox {
                 id: groupPicker
+                width: Math.min(Style.space(220), parent.width)
                 model: root.groups()
                 onActivated: {
                     root.groupFilter = currentIndex === 0 ? "" : currentText;
@@ -545,6 +549,7 @@ Item {
                 }
             }
             ComboBox {
+                width: Math.min(Style.space(180), parent.width)
                 model: ["manual", "name", "server", "favorites"]
                 onActivated: {
                     root.sortMode = currentText;
