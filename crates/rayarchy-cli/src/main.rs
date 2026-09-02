@@ -45,6 +45,14 @@ async fn main() -> anyhow::Result<()> {
                     .await,
             );
         }
+        "validate" => {
+            let id = args.next().unwrap_or_default();
+            print_json(
+                daemon
+                    .dispatch("core.validate", serde_json::json!({"profileId":id}))
+                    .await,
+            );
+        }
         "import" => {
             let input = args.collect::<Vec<_>>().join(" ");
             print_json(
@@ -54,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         "help" | "--help" | "-h" => {
-            println!("rayarchy [status|profiles|connect ID|disconnect|ip|history|bulk ID...|diagnostics|import URI]")
+            println!("rayarchy [status|profiles|connect ID|disconnect|ip|history|bulk ID...|diagnostics|validate ID|import URI]")
         }
         command => {
             eprintln!("unknown command: {command}");
