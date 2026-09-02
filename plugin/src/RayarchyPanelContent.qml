@@ -4,6 +4,12 @@ import qs.Commons
 
 Item {
   id: root
+  focus: true
+  Keys.onPressed: function(event) {
+    if ((event.key === Qt.Key_F) && (event.modifiers & Qt.ControlModifier || event.modifiers & Qt.MetaModifier)) { searchField.forceActiveFocus(); event.accepted = true }
+    else if (event.key === Qt.Key_Return && root.selectedId !== "" && !root.connected) { root.rpc.call("profile.connect", { profileId: root.selectedId }, function(result, error) { root.message = error ? error.message : "Connection established"; if (!error) root.refreshStatus() }); event.accepted = true }
+    else if (event.key === Qt.Key_Escape && (root.query !== "" || root.groupFilter !== "" || root.favoritesOnly || root.healthOnly || root.sortMode !== "manual")) { searchField.text = ""; root.query = ""; root.groupFilter = ""; root.favoritesOnly = false; root.healthOnly = false; root.sortMode = "manual"; groupPicker.currentIndex = 0; root.refresh(); event.accepted = true }
+  }
   property var rpc: null
   property var profiles: []
   property var allProfiles: []
