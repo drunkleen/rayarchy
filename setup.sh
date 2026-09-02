@@ -5,7 +5,7 @@ command -v install >/dev/null || { echo "Rayarchy setup requires install" >&2; e
 if [[ "${1:-}" == "--check" ]]; then
   command -v systemctl >/dev/null || { echo "Rayarchy setup requires systemctl" >&2; exit 1; }
   test -f "$root/manifest.json" && test -f "$root/packaging/rayarchy.service"
-  test -f "$root/plugin/src/RayarchyPanel.qml" && test -x "$root/setup.sh"
+  test -f "$root/crates/rayarchy-daemon/src/main.rs" && test -x "$root/setup.sh"
   echo "Rayarchy setup prerequisites are valid"
   exit 0
 fi
@@ -45,4 +45,4 @@ systemctl --user daemon-reload
 systemctl --user enable rayarchy.service
 systemctl --user restart rayarchy.service
 [[ -n "$release_tmp" ]] && rm -rf "$release_tmp"
-echo "Rayarchy backend installed. Open the Omarchy Rayarchy panel."
+echo "Rayarchy backend installed. Run ~/.local/bin/rayarchy --help."

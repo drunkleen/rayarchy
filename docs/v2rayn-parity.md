@@ -2,13 +2,13 @@
 
 | v2rayN workflow | Rayarchy surface |
 |---|---|
-| ProfilesView | Main panel profile list, groups, search, sort, actions |
-| AddServer / AddServer2 | Add profile import dialog and Rust parsers |
+| ProfilesView | `profile.*` RPCs and CLI profile commands |
+| AddServer / AddServer2 | Import RPCs and Rust parsers |
 | SubSetting / SubEdit | Subscription list/editor and refresh RPCs |
-| OptionSetting | Settings page, core/mode/DNS/routing controls |
+| OptionSetting | Settings RPCs |
 | RoutingRuleSetting | Routing RPC and generated core route rules |
-| QrcodeView | QR payload RPC and shell-native display |
-| MsgView | Bounded daemon log ring and Logs view |
+| QrcodeView | QR payload and image RPCs |
+| MsgView | Bounded daemon log ring and diagnostics RPCs |
 | BackupAndRestore | Encrypted/permission-safe archive import/export |
 | CoreManager | Rust process manager for xray and sing-box |
 
@@ -22,27 +22,25 @@ are validated and handed to the selected core unchanged. Policy groups persist
 an ordered member list and support manual, latency, fallback, and load-balance
 selection. Proxy chains preserve hop order and compile to sing-box detours.
 Groups and chains reject missing, disabled, duplicate, self-referential, or
-nested members through the same RPC validation used by the QML editor.
+nested members through RPC validation.
 
 ## Import sources
 
 `import.clipboard` reads Wayland text through `wl-paste`; `import.qr.image`
 decodes a bounded regular image file through `zbarimg`. Both return the decoded
 input and parsed preview without persisting anything. The existing
-`import.commit` call remains the only import mutation, so the UI always previews
+`import.commit` call remains the only import mutation, so callers can preview
 before saving. External command failures and unsupported payloads are returned
-to QML as visible RPC errors, without logging credentials.
+as structured RPC errors without logging credentials.
 
 ## Profile list behavior
 
 `profile.list` accepts `query`, `group`, `sort`, `favoritesOnly`, and
 `enabledOnly`. Sorting supports the persisted manual order, name, server, and
-favorites-first views. The panel only enables reorder controls in the
-unfiltered manual view so moving a row cannot accidentally hide or discard
-other profiles. Favorites, enabled state, groups, and manual order are stored
-by the backend. RPC failures remain visible in the panel and do not apply an
-optimistic state change.
+favorites-first views. Reordering is valid only with an unfiltered manual list
+so callers cannot accidentally hide or discard profiles. Favorites, enabled
+state, groups, and manual order are stored by the backend.
 
 Windows-only tray, registry, service, and WFP behavior is replaced by
-Omarchy bar integration, systemd user services, gsettings proxy management,
+systemd user services, gsettings proxy management,
 and the narrow Polkit helper where Linux requires privilege.

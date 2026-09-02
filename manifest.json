@@ -4,19 +4,8 @@
   "name": "Rayarchy",
   "version": "0.1.0-beta.1",
   "author": "DrunkLeen",
-  "description": "v2rayN-inspired proxy manager for the Omarchy shell",
-  "kinds": ["bar-widget", "panel"],
+  "description": "Rust v2rayN-inspired proxy backend and CLI for Omarchy",
+  "kinds": ["backend"],
   "activation": "on-demand",
-  "entryPoints": {
-    "barWidget": "plugin/src/RayarchyBar.qml",
-    "panel": "plugin/src/App.qml"
-  },
-  "barWidget": {
-    "displayName": "Rayarchy",
-    "description": "Manage proxy profiles and connection state",
-    "category": "Network",
-    "aliases": ["proxy", "vpn", "xray", "sing-box"],
-    "allowMultiple": false,
-    "defaultSection": "right"
-  }
+  "entryPoints": {}
 }

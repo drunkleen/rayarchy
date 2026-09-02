@@ -6,22 +6,19 @@ used to reproduce workflows and outcomes; its .NET/Avalonia code is not copied.
 
 ## Product decisions
 
-- The standalone desktop window is the complete management interface. The bar
-  panel is a compact status and connection controller.
-- Screens preserve v2rayN information architecture, actions, shortcuts, and
-  state transitions while using Omarchy theme tokens and QML controls.
+- Rayarchy is backend-only. Its public user interface is the JSON CLI and its
+  automation interface is JSON-RPC over a private Unix socket.
 - Windows-only registry, WFP, UWP, and service behavior is replaced with Linux
   system proxy, systemd user services, and an explicitly installed Polkit
   helper for privileged networking.
 - Core installation is an explicit, checksum-verified setup action. Installing
   the shell plugin never runs privileged hooks or downloads executables.
-- English is the initial catalog language; UI strings are localization-ready.
 
 ## Linux workflow inventory
 
-| Area | Reference surfaces | Rayarchy target |
+| Area | Reference behavior | Rayarchy target |
 |---|---|---|
-| Profiles | ProfilesView, AddServer, AddServer2 | Dense list, groups, all supported protocols, custom configs, policy groups, proxy chains |
+| Profiles | ProfilesView, AddServer, AddServer2 | CLI/RPC list, groups, all supported protocols, custom configs, policy groups, proxy chains |
 | Subscriptions | SubSetting, SubEdit | CRUD, proxy refresh, scheduled refresh, history, conversion options |
 | Connectivity | MainWindow, StatusBar | Local, system proxy, TUN, transparent routing, verified activation, traffic status |
 | Tests | ProfilesView actions | TCP, real/proxy delay, speed, UDP, batch cancellation, history |

@@ -1,24 +1,22 @@
 # Rayarchy specification
 
-Rayarchy is the Linux/Omarchy implementation of the workflows exposed by
+Rayarchy is the Linux/Omarchy backend implementation of workflows exposed by
 v2rayN. The source reference is `/mnt/storage/projects/v2rayN`.
 
-The product keeps v2rayN concepts—profiles, subscriptions, groups, tests,
-core selection, routing, DNS, system proxy, TUN, logs, backup/restore—but
-maps them to a single Omarchy Quickshell panel. Rust is authoritative for all
-network and persistent state. QML only renders data and sends RPC requests.
+The product keeps v2rayN concepts—profiles, subscriptions, groups, tests, core
+selection, routing, DNS, system proxy, TUN, logs, and backup/restore—and maps
+them to a Rust daemon, JSON-RPC API, and command-line client. Rust is
+authoritative for all network and persistent state.
 
-The plugin is installed with `omarchy plugin add` and the backend is installed
-separately by `setup.sh`; plugin installation never executes privileged code.
+The package is cloned with `omarchy plugin add` and the backend is installed
+separately by `setup.sh`; package installation never executes privileged code.
 
 ## Definition of done
 
-Every v2rayN Linux workflow listed in `TODO.md` has an RPC implementation,
-automated tests, user-facing QML controls, documented failure behavior, and a
-verified Omarchy-shell acceptance run. No connected state may be reported
-without a successful outbound health check and mode activation.
+Every supported workflow has an RPC implementation, automated Rust tests, CLI
+error handling, documented failure behavior, and a verified daemon/CLI
+acceptance run. No connected state may be reported without a successful
+outbound health check and mode activation.
 
-The current core slice starts installed Xray or sing-box with a generated
-local mixed listener and verifies an outbound request through that listener
-before activation. Protocol-specific transport and routing support remains in
-progress.
+The current core slice starts installed Xray or sing-box with a generated local
+mixed listener and verifies an outbound request before activation.

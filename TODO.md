@@ -1,8 +1,8 @@
 # Rayarchy 100% ship checklist
 
 ## Foundation
-- [ ] Omarchy manifest, bar widget, panel, and theme tokens
-- [ ] Rust workspace, JSON-RPC Unix socket, user systemd service
+- [x] Backend-only Omarchy manifest with no shell entry points
+- [x] Rust workspace, JSON-RPC Unix socket, user systemd service
 - [x] User service and source-checkout setup installer
 - [x] Reproducible release archive and checksum artifact workflow
 
@@ -21,6 +21,6 @@
 
 ## Release gates
 - [x] Full workspace tests and strict Clippy
-- [x] QML formatting and plugin validation
-- [ ] Live Omarchy shell visual and connect/disconnect verification
+- [x] Backend manifest and repository validation
+- [ ] Live daemon/CLI connect/disconnect verification
 - [ ] Commit every completed vertical slice

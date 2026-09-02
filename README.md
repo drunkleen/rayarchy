@@ -3,46 +3,39 @@
 Current release channel: **0.1.0-beta.1**. See [docs/beta.md](docs/beta.md)
 for the install flow and known beta limits.
 
-v2rayN-inspired proxy management for the Omarchy shell. It uses the local
-`/mnt/storage/projects/v2rayN` source tree as its behavior reference while
-providing an Omarchy-native QML interface and Rust backend.
+Rust v2rayN-inspired proxy management for Omarchy. It provides a systemd user
+daemon, JSON-RPC Unix socket, and command-line client. There is no graphical UI.
 
-Install the shell plugin:
+Clone through Omarchy, then install the backend:
 
 ```sh
 omarchy plugin add https://github.com/drunkleen/rayarchy --enable
+RAYARCHY_BUILD_FROM_SOURCE=1 ~/.config/omarchy/plugins/com.drunkleen.rayarchy/setup.sh
 ```
 
-Install and start the unprivileged backend from the cloned plugin checkout
-(this compiles the Rust backend locally; no sudo is required):
-
-```sh
-~/.config/omarchy/plugins/com.drunkleen.rayarchy/setup.sh
-```
-
-The plugin itself is unprivileged. TUN/transparent routing and kill-switch
+The backend is unprivileged. TUN/transparent routing and kill-switch
 support are intentionally refused until their narrowly-scoped helper is
 installed and enabled by a future release.
 
-Then run the backend setup from the installed checkout. Development status and
-the complete parity checklist are in `TODO.md` and `instructions.md`.
+Development status and the parity checklist are in `TODO.md` and
+`instructions.md`.
 
-## Import and backup workflows
+## CLI usage
 
-Open **Add profile**, paste a v2rayN URI, JSON, YAML, WireGuard configuration,
-or subscription payload, then choose **Preview parsed profiles**. Rayarchy
-shows the parsed records and parser errors before **OK** commits anything.
-The same dialog can read text from the Wayland clipboard or decode a QR image
-with `zbarimg`; neither path persists profiles before the preview is accepted.
+Use the explicitly installed client if an old `/usr/local/bin` copy exists:
 
-Use **Advanced profile** for AnyTLS, Naive, full custom core JSON, latency or
-fallback policy groups, and ordered sing-box proxy chains. Group and chain
-members are profile UUIDs shown by the profile export/diagnostic surfaces.
+```sh
+~/.local/bin/rayarchy status
+~/.local/bin/rayarchy profiles
+~/.local/bin/rayarchy import 'vless://...'
+~/.local/bin/rayarchy validate PROFILE_ID
+~/.local/bin/rayarchy connect PROFILE_ID
+~/.local/bin/rayarchy ip
+~/.local/bin/rayarchy disconnect
+```
 
-Use **Backup** to export the complete local state as JSON. Restore accepts only
-valid Rayarchy state and refuses while a profile is connected; malformed input
-is rejected without changing the existing database. Keep exported backups
-private because they may contain credentials.
+The CLI prints JSON. Imported profiles and backups may contain credentials;
+keep command output and state files private.
 
 For a repeatable live parser check, build the CLI and run:
 
@@ -53,22 +46,13 @@ RAYARCHY_SUBSCRIPTION_URL='https://example.invalid/subscription' \
 
 The script keeps the downloaded payload temporary and reports only counts.
 
-Keyboard shortcuts in the panel include Ctrl/Cmd+F to focus profile search,
-Enter to connect the selected profile, and Escape to clear active filters.
-Profile rows expose descriptive accessibility labels and health status.
-
-The backend CLI can be used for scripted checks and recovery:
+Batch testing and fastest-profile selection are also available:
 
 ```sh
-rayarchy profiles
-rayarchy bulk-proxy PROFILE_ID...
-rayarchy best                 # show the fastest recently verified profile
-rayarchy best --connect       # verify the selection, then connect it
-rayarchy disconnect
+~/.local/bin/rayarchy bulk-proxy PROFILE_ID...
+~/.local/bin/rayarchy best
+~/.local/bin/rayarchy best --connect
 ```
-
-Subscription edits preserve daemon refresh history. Deleting a subscription
-requires one confirmation and also removes profiles imported from that source.
 
 After upgrading from an older Rayarchy build, rerun `setup.sh` from the cloned
 checkout. It rebuilds and installs both the daemon and CLI under
