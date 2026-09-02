@@ -19,8 +19,18 @@ Panel {
     RayarchyRpc {
         id: rpc
     }
-    RayarchyPanelContent {
-        anchors.fill: parent
-        rpc: rpc
+    KeyboardPanel {
+        id: panel
+        anchorItem: root.anchorItem
+        owner: root.barIdentity
+        bar: root.bar
+        open: root.opened
+        centerOnBar: true
+        contentWidth: panel.fittedContentWidth(Style.space(600))
+        contentHeight: panel.fittedContentHeight(Style.space(760))
+        RayarchyPanelContent {
+            anchors.fill: parent
+            rpc: rpc
+        }
     }
 }
