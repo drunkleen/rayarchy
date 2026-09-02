@@ -4,358 +4,1772 @@ import Quickshell
 import qs.Commons
 
 Item {
-  id: root
-  focus: true
-  Keys.onPressed: function(event) {
-    if ((event.key === Qt.Key_F) && (event.modifiers & Qt.ControlModifier || event.modifiers & Qt.MetaModifier)) { searchField.forceActiveFocus(); event.accepted = true }
-    else if (event.key === Qt.Key_Return && root.selectedId !== "" && !root.connected) { root.rpc.call("profile.connect", { profileId: root.selectedId }, function(result, error) { root.message = error ? error.message : "Connection established"; if (!error) root.refreshStatus() }); event.accepted = true }
-    else if (event.key === Qt.Key_Escape && (root.query !== "" || root.groupFilter !== "" || root.favoritesOnly || root.healthOnly || root.sortMode !== "manual")) { searchField.text = ""; root.query = ""; root.groupFilter = ""; root.favoritesOnly = false; root.healthOnly = false; root.sortMode = "manual"; groupPicker.currentIndex = 0; root.refresh(); event.accepted = true }
-  }
-  property var rpc: null
-  property var profiles: []
-  property var allProfiles: []
-  property string query: ""
-  property string groupFilter: ""
-  property string sortMode: "manual"
-  property bool favoritesOnly: false
-  property bool healthOnly: false
-  property bool connected: false
-  property bool connecting: false
-  property string connectionDetail: ""
-  property string ipProtectionDetail: ""
-  property bool ipCheckRunning: false
-  property string ipCheckedAt: ""
-  property bool diagnosticRunning: false
-  property string selectedId: ""
-  property string message: ""
-  property string subscriptionSummary: ""
-  property var bulkResults: []
-  property string bulkSortMode: "fastest"
-  property bool subscriptionRefreshing: false
-  ProtocolEditor { id: structuredEditor; rpc: root.rpc; onSaved: root.refresh() }
-  function refresh() {
-    if (!root.rpc) return
-    root.rpc.call("profile.list", {}, function(result, error) {
-      if (!error) root.allProfiles = result || []
-    })
-    root.rpc.call("profile.list", { query: root.query, group: root.groupFilter, sort: root.sortMode, favoritesOnly: root.favoritesOnly }, function(result, error) {
-      if (error) root.message = error.message
-      else root.profiles = root.healthOnly ? (result || []).filter(function(profile) { return profile.lastTest && profile.lastTest.ok }) : (result || [])
-    })
-    root.rpc.call("system.status", {}, function(result, error) {
-      if (!error) { root.connected = !!result.connected; root.connecting = !!result.connecting; root.selectedId = result.profileId || root.selectedId; root.connectionDetail = result.connected ? ((result.profileName || "Profile") + " • " + (result.core || "core") + " • 127.0.0.1:" + (result.localPort || "") + (result.lastHealth && result.lastHealth.ok ? " • verified " + result.lastHealth.latencyMs + " ms" : " • health pending")) : ""; root.ipProtectionDetail = result.lastIp ? (result.lastIp.protected ? "External IP protected" : "External IP not changed") : "IP check not run" }
-    })
-  }
-  function groups() {
-    var values = ["All groups"]
-    root.allProfiles.forEach(function(profile) {
-      var group = String(profile.group || "").trim()
-      if (group && values.indexOf(group) < 0) values.push(group)
-    })
-    return values
-  }
-  function formatBulkResults(results) {
-    if (!results || results.length === 0) return "No profiles were tested."
-    var ordered = results.slice().sort(function(a, b) {
-      if (root.bulkSortMode === "successful") return Number(b.ok) - Number(a.ok) || Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999)
-      if (root.bulkSortMode === "failed") return Number(a.ok) - Number(b.ok) || Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999)
-      return Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999)
-    })
-    return ordered.map(function(row) {
-      var status = row.ok ? "PASS" : "FAIL"
-      var latency = Number(row.latencyMs || 0)
-      var detail = row.ok ? (latency + " ms") : (row.error || "health check failed")
-      return status + "  " + row.name + "  —  " + detail
-    }).join("\n")
-  }
-  function formatHistory(rows) {
-    if (!rows || rows.length === 0)
-      return "No diagnostic results recorded for this profile.";
-    return rows.slice().reverse().map(function (row) {
-      var stamp = row.timestamp ? new Date(Number(row.timestamp) * 1000).toLocaleString() : "Unknown time";
-      var kind = String(row.kind || "test").toUpperCase();
-      var result = row.ok ? "PASS" : "FAIL";
-      var latency = row.latencyMs === undefined ? "" : " • " + row.latencyMs + " ms";
-      var detail = row.ok ? "" : " • " + (row.error || "health check failed");
-      return stamp + " • " + kind + " • " + result + latency + detail;
-    }).join("\n");
-  }
-  function bulkHealthSummary() {
-    var passing = root.bulkResults.filter(function (r) { return r.ok }).length;
-    return "Health: " + passing + "/" + root.bulkResults.length + " passing • " + (root.bulkResults.length - passing) + " failing";
-  }
-  function cycleBulkSort() {
-    root.bulkSortMode = root.bulkSortMode === "fastest" ? "successful" : (root.bulkSortMode === "successful" ? "failed" : "fastest")
-  }
-  function showSuccess(text) {
-    root.message = text
-    settingsMessageTimer.restart()
-  }
-  function refreshAllSubscriptions() {
-    if (!root.rpc || root.subscriptionRefreshing) return
-    root.subscriptionRefreshing = true
-    var pending = subscriptionManager.items.slice()
-    var updated = 0
-    function next() {
-      if (pending.length === 0) { root.subscriptionRefreshing = false; showSuccess("Subscriptions refreshed (" + updated + " profiles updated)"); root.refresh(); return }
-      var item = pending.shift()
-      root.message = "Refreshing " + item.name + "…"
-      root.rpc.call("subscription.refresh", { subscriptionId: item.id }, function(result, error) { if (error) { root.subscriptionRefreshing = false; root.message = error.message; return } updated += Number(result.updated || 0); next() })
-    }
-    next()
-  }
-  function moveProfile(profileId, delta) {
-    var ids = root.allProfiles.map(function(profile) { return profile.id })
-    var from = ids.indexOf(profileId)
-    var to = from + delta
-    if (from < 0 || to < 0 || to >= ids.length) return
-    var moved = ids.splice(from, 1)[0]
-    ids.splice(to, 0, moved)
-    root.rpc.call("profile.reorder", { profileIds: ids }, function(result, error) {
-      root.message = error ? error.message : "Profile order saved"
-      if (!error) root.refresh()
-    })
-  }
-  function refreshStatus() {
-    if (!root.rpc || !root.rpc.connected) return
-    root.rpc.call("system.status", {}, function(result, error) {
-      if (!error) {
-        root.connected = !!result.connected
-        root.connecting = !!result.connecting
-        if (result.profileId) root.selectedId = result.profileId
-        root.connectionDetail = result.connected ? ((result.profileName || "Profile") + " • " + (result.core || "core") + " • 127.0.0.1:" + (result.localPort || "") + (result.lastHealth && result.lastHealth.ok ? " • verified " + result.lastHealth.latencyMs + " ms" : " • health pending")) : ""
-        root.ipProtectionDetail = result.lastIp ? (result.lastIp.protected ? "External IP protected" : "External IP not changed") : "IP check not run"
-      }
-    })
-  }
-  function refreshSubscriptions() {
-    if (!root.rpc) return
-    root.rpc.call("subscription.list", {}, function(result, error) {
-      if (!error) {
-        subscriptionManager.items = result || []
-        var errors = subscriptionManager.items.filter(function(s) { return !!s.lastError }).length
-        var enabled = subscriptionManager.items.filter(function(s) { return !!s.enabled }).length
-        root.subscriptionSummary = subscriptionManager.items.length + " sources • " + enabled + " enabled" + (errors ? " • " + errors + " with errors" : "")
-      }
-      else root.message = error.message || "Could not load subscriptions"
-    })
-  }
-  Component.onCompleted: root.refresh()
-  Connections { target: root.rpc; function onConnectedChanged() { if (root.rpc.connected) root.refresh() } }
-  Timer { interval: 2000; repeat: true; running: root.visible; triggeredOnStart: true; onTriggered: root.refreshStatus() }
-  Timer { id: ipTimer; interval: 60000; repeat: true; running: root.visible && root.connected; onTriggered: root.checkExternalIp() }
-  Timer { interval: 1000; repeat: true; running: subscriptionManager.visible; triggeredOnStart: true; onTriggered: root.refreshSubscriptions() }
-  Timer { id: settingsMessageTimer; interval: 3500; repeat: false; onTriggered: root.message = "" }
-  function checkExternalIp() {
-    if (!root.rpc || !root.connected || root.ipCheckRunning)
-      return;
-    root.ipCheckRunning = true;
-    root.ipProtectionDetail = "Checking external IP…";
-    root.rpc.call("test.ip", {}, function (result, error) {
-      root.ipCheckRunning = false;
-      if (error) {
-        root.ipProtectionDetail = "IP check failed";
-        root.ipCheckedAt = new Date().toLocaleTimeString();
-        return;
-      }
-      root.ipProtectionDetail = result.protected ? "External IP protected" : "External IP not changed";
-      root.ipCheckedAt = new Date().toLocaleTimeString();
-    });
-  }
-  function runDiagnostic(method, params, label) {
-    if (!root.rpc || root.diagnosticRunning)
-      return;
-    root.diagnosticRunning = true;
-    root.message = label + "…";
-    root.rpc.call(method, params || {}, function (result, error) {
-      root.diagnosticRunning = false;
-      if (error) {
-        root.message = error.message || (label + " failed");
-        return;
-      }
-      if (method === "test.tcp")
-        root.message = (result.ok ? "TCP reachable" : "TCP failed") + " • " + (result.latencyMs || "n/a") + " ms";
-      else if (method === "test.proxy")
-        root.message = (result.ok ? "Proxy reachable" : "Proxy failed") + " • " + (result.latencyMs || "n/a") + " ms";
-      else
-        root.message = (result.ok ? "Speed" : "Speed test failed") + " • " + Number(result.megabitsPerSecond || 0).toFixed(1) + " Mbps";
-    });
-  }
-  function testAndConnect(profileId, host, port) {
-    if (!root.rpc || root.diagnosticRunning || root.connected)
-      return;
-    root.diagnosticRunning = true;
-    root.message = "Testing profile…";
-    root.rpc.call("test.tcp", { host: host, port: port }, function (result, error) {
-      if (error || !result.ok) {
-        root.diagnosticRunning = false;
-        root.message = error ? error.message : "TCP test failed; profile was not connected";
-        return;
-      }
-      root.message = "TCP passed; connecting…";
-      root.rpc.call("profile.connect", { profileId: profileId }, function (connectResult, connectError) {
-        root.diagnosticRunning = false;
-        if (connectError)
-          root.message = connectError.message || "Connection failed";
-        else {
-          root.message = "Connection established";
-          root.selectedId = profileId;
-          root.refreshStatus();
+    id: root
+    focus: true
+    Keys.onPressed: function (event) {
+        if ((event.key === Qt.Key_F) && (event.modifiers & Qt.ControlModifier || event.modifiers & Qt.MetaModifier)) {
+            searchField.forceActiveFocus();
+            event.accepted = true;
+        } else if (event.key === Qt.Key_Return && root.selectedId !== "" && !root.connected) {
+            root.rpc.call("profile.connect", {
+                profileId: root.selectedId
+            }, function (result, error) {
+                root.message = error ? error.message : "Connection established";
+                if (!error)
+                    root.refreshStatus();
+            });
+            event.accepted = true;
+        } else if (event.key === Qt.Key_Escape && (root.query !== "" || root.groupFilter !== "" || root.favoritesOnly || root.healthOnly || root.sortMode !== "manual")) {
+            searchField.text = "";
+            root.query = "";
+            root.groupFilter = "";
+            root.favoritesOnly = false;
+            root.healthOnly = false;
+            root.sortMode = "manual";
+            groupPicker.currentIndex = 0;
+            root.refresh();
+            event.accepted = true;
         }
-      });
-    });
-  }
-  Rectangle { anchors.fill: parent; color: Color.background }
-  Loader { id: subscriptionStatusLoader; sourceComponent: Component { Dialog { modal: true; title: "Subscription status"; standardButtons: Dialog.Close; contentItem: TextArea { id: statusText; width: 520; height: 300; readOnly: true; wrapMode: TextEdit.NoWrap; selectByMouse: true } } } }
-  Loader { id: rawEditorLoader; sourceComponent: Component { Dialog { modal: true; title: "Raw profile configuration"; standardButtons: Dialog.Save | Dialog.Cancel; property string profileId: ""; contentItem: TextArea { id: rawText; width: 560; height: 320; wrapMode: TextEdit.NoWrap; selectByMouse: true } onAccepted: root.rpc.call("profile.raw.update", { profileId: rawEditorLoader.item.profileId, raw: rawText.text }, function(result, error) { root.message = error ? error.message : "Raw configuration saved"; if (!error) rawEditorLoader.item.close(); root.refresh() }) } } }
-  Loader { id: protocolEditorLoader; sourceComponent: Component { Dialog { modal: true; title: "Quick protocol fields"; standardButtons: Dialog.Save | Dialog.Cancel; property string profileId: ""; function load(profile) { profileId = profile.id; uuid.text = profile.fields && profile.fields.user || ""; password.text = profile.fields && profile.fields.password || ""; security.text = profile.fields && (profile.fields.security || profile.fields.tls) || ""; sni.text = profile.fields && profile.fields.sni || ""; network.text = profile.fields && (profile.fields.type || profile.fields.network) || ""; path.text = profile.fields && profile.fields.path || ""; method.text = profile.fields && profile.fields.method || ""; obfs.text = profile.fields && (profile.fields.obfs || profile.fields["obfs-password"]) || ""; privateKey.text = profile.fields && profile.fields.private_key || ""; publicKey.text = profile.fields && profile.fields.public_key || ""; address.text = profile.fields && profile.fields.local_address || "" } contentItem: Column { spacing: 8; TextField { id: uuid; placeholderText: "UUID / user" } TextField { id: password; placeholderText: "Password"; echoMode: TextInput.Password } TextField { id: security; placeholderText: "Security (tls/none)" } TextField { id: sni; placeholderText: "SNI / server name" } TextField { id: network; placeholderText: "Network (ws/tcp)" } TextField { id: path; placeholderText: "Path" } TextField { id: method; placeholderText: "Shadowsocks method" } TextField { id: obfs; placeholderText: "Obfuscation / obfs password" } TextField { id: privateKey; placeholderText: "WireGuard private key"; echoMode: TextInput.Password } TextField { id: publicKey; placeholderText: "WireGuard public key" } TextField { id: address; placeholderText: "WireGuard local address" } } onAccepted: root.rpc.call("profile.fields.update", { profileId: protocolEditorLoader.item.profileId, fields: { user:uuid.text, password:password.text, security:security.text, sni:sni.text, type:network.text, path:path.text, method:method.text, obfs:obfs.text, private_key:privateKey.text, public_key:publicKey.text, local_address:address.text } }, function(result,error) { root.message = error ? error.message : "Protocol fields saved"; if (!error) { protocolEditorLoader.item.close(); root.refresh() } }) } } }
-  Loader { id: qrImageLoader; sourceComponent: Component { Dialog { modal: true; title: "QR code"; standardButtons: Dialog.Close; contentItem: Image { id: qrImage; width: 320; height: 320; fillMode: Image.PreserveAspectFit } } } }
-  Column {
-    anchors.fill: parent; anchors.margins: 18; spacing: 12
-    Row { spacing: 12; Text { text: "Rayarchy"; color: Color.foreground; font.bold: true; font.pixelSize: 22 } Text { text: root.connected ? root.connectionDetail : (root.connecting ? "Connecting…" : "Disconnected"); color: root.connected ? "#74d99f" : (root.connecting ? "#efb06a" : Qt.darker(Color.foreground, 1.4)); Accessible.name: text } Button { text: root.connected ? "Disconnect" : (root.connecting ? "Connecting…" : "Connect"); enabled: (root.selectedId !== "" || root.connected) && !root.connecting; onClicked: if (root.rpc) root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : { profileId: root.selectedId }, function(result, error) { if (error) { root.message = error.message || "Connection failed" } else { root.message = root.connected ? "Disconnected" : "Connected"; root.refreshStatus() } }) } } Button { text: root.ipCheckRunning ? "Checking IP…" : "Check external IP"; enabled: root.connected && !root.ipCheckRunning; Accessible.name: "Check external IP protection"; onClicked: root.checkExternalIp() } }
-    Text { text: root.ipProtectionDetail + (root.ipCheckedAt !== "" ? " • " + root.ipCheckedAt : ""); visible: root.connected && text !== ""; color: root.ipProtectionDetail === "External IP protected" ? "#74d99f" : "#efb06a" }
-    TextField { id: searchField; width: parent.width; placeholderText: "Search profiles…"; onTextChanged: { root.query = text; root.refresh() } }
-    Row {
-      spacing: 8
-      ComboBox { id: groupPicker; model: root.groups(); onActivated: { root.groupFilter = currentIndex === 0 ? "" : currentText; root.refresh() } }
-      ComboBox { model: ["manual", "name", "server", "favorites"]; onActivated: { root.sortMode = currentText; root.refresh() } }
-      CheckBox { text: "Favorites"; checked: root.favoritesOnly; onToggled: { root.favoritesOnly = checked; root.refresh() } }
-      CheckBox { text: "Healthy only"; checked: root.healthOnly; onToggled: { root.healthOnly = checked; root.refresh() } }
-      Button { text: "Clear filters"; visible: root.query !== "" || root.groupFilter !== "" || root.favoritesOnly || root.healthOnly || root.sortMode !== "manual"; onClicked: { searchField.text = ""; root.query = ""; root.groupFilter = ""; root.favoritesOnly = false; root.healthOnly = false; root.sortMode = "manual"; groupPicker.currentIndex = 0; root.refresh() } }
     }
-    Text { visible: root.profiles.length === 0; text: "No profiles yet. Add a profile or subscription to begin."; color: Color.foreground }
-    Text { visible: root.message !== ""; text: root.message; color: Color.accent; width: parent.width; wrapMode: Text.WordWrap }
-    ListView {
-      width: parent.width; height: Math.max(80, parent.height - y - 54); focus: true; keyNavigationEnabled: true; activeFocusOnTab: true
-      model: root.profiles; onCurrentIndexChanged: if (currentIndex >= 0 && currentIndex < root.profiles.length) root.selectedId = root.profiles[currentIndex].id
-      delegate: Rectangle {
-        width: ListView.view.width; height: 58; color: "transparent"; Accessible.name: modelData.name + ", " + (modelData.protocol || "profile") + (modelData.server ? ", " + modelData.server : ""); border.color: root.selectedId === modelData.id ? Color.accent : (ListView.view.activeFocus ? Qt.lighter(Color.foreground, 1.2) : Color.foreground); border.width: root.selectedId === modelData.id ? 2 : 1
+    property var rpc: null
+    property var profiles: []
+    property var allProfiles: []
+    property string query: ""
+    property string groupFilter: ""
+    property string sortMode: "manual"
+    property bool favoritesOnly: false
+    property bool healthOnly: false
+    property bool connected: false
+    property bool connecting: false
+    property string connectionDetail: ""
+    property string ipProtectionDetail: ""
+    property bool ipCheckRunning: false
+    property string ipCheckedAt: ""
+    property bool diagnosticRunning: false
+    property string selectedId: ""
+    property string message: ""
+    property string subscriptionSummary: ""
+    property var bulkResults: []
+    property string bulkSortMode: "fastest"
+    property bool subscriptionRefreshing: false
+    ProtocolEditor {
+        id: structuredEditor
+        rpc: root.rpc
+        onSaved: root.refresh()
+    }
+    function refresh() {
+        if (!root.rpc)
+            return;
+        root.rpc.call("profile.list", {}, function (result, error) {
+            if (!error)
+                root.allProfiles = result || [];
+        });
+        root.rpc.call("profile.list", {
+            query: root.query,
+            group: root.groupFilter,
+            sort: root.sortMode,
+            favoritesOnly: root.favoritesOnly
+        }, function (result, error) {
+            if (error)
+                root.message = error.message;
+            else
+                root.profiles = root.healthOnly ? (result || []).filter(function (profile) {
+                    return profile.lastTest && profile.lastTest.ok;
+                }) : (result || []);
+        });
+        root.rpc.call("system.status", {}, function (result, error) {
+            if (!error) {
+                root.connected = !!result.connected;
+                root.connecting = !!result.connecting;
+                root.selectedId = result.profileId || root.selectedId;
+                root.connectionDetail = result.connected ? ((result.profileName || "Profile") + " • " + (result.core || "core") + " • 127.0.0.1:" + (result.localPort || "") + (result.lastHealth && result.lastHealth.ok ? " • verified " + result.lastHealth.latencyMs + " ms" : " • health pending")) : "";
+                root.ipProtectionDetail = result.lastIp ? (result.lastIp.protected ? "External IP protected" : "External IP not changed") : "IP check not run";
+            }
+        });
+    }
+    function groups() {
+        var values = ["All groups"];
+        root.allProfiles.forEach(function (profile) {
+            var group = String(profile.group || "").trim();
+            if (group && values.indexOf(group) < 0)
+                values.push(group);
+        });
+        return values;
+    }
+    function formatBulkResults(results) {
+        if (!results || results.length === 0)
+            return "No profiles were tested.";
+        var ordered = results.slice().sort(function (a, b) {
+            if (root.bulkSortMode === "successful")
+                return Number(b.ok) - Number(a.ok) || Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999);
+            if (root.bulkSortMode === "failed")
+                return Number(a.ok) - Number(b.ok) || Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999);
+            return Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999);
+        });
+        return ordered.map(function (row) {
+            var status = row.ok ? "PASS" : "FAIL";
+            var latency = Number(row.latencyMs || 0);
+            var detail = row.ok ? (latency + " ms") : (row.error || "health check failed");
+            return status + "  " + row.name + "  —  " + detail;
+        }).join("\n");
+    }
+    function formatHistory(rows) {
+        if (!rows || rows.length === 0)
+            return "No diagnostic results recorded for this profile.";
+        return rows.slice().reverse().map(function (row) {
+            var stamp = row.timestamp ? new Date(Number(row.timestamp) * 1000).toLocaleString() : "Unknown time";
+            var kind = String(row.kind || "test").toUpperCase();
+            var result = row.ok ? "PASS" : "FAIL";
+            var latency = row.latencyMs === undefined ? "" : " • " + row.latencyMs + " ms";
+            var detail = row.ok ? "" : " • " + (row.error || "health check failed");
+            return stamp + " • " + kind + " • " + result + latency + detail;
+        }).join("\n");
+    }
+    function bulkHealthSummary() {
+        var passing = root.bulkResults.filter(function (r) {
+            return r.ok;
+        }).length;
+        return "Health: " + passing + "/" + root.bulkResults.length + " passing • " + (root.bulkResults.length - passing) + " failing";
+    }
+    function cycleBulkSort() {
+        root.bulkSortMode = root.bulkSortMode === "fastest" ? "successful" : (root.bulkSortMode === "successful" ? "failed" : "fastest");
+    }
+    function showSuccess(text) {
+        root.message = text;
+        settingsMessageTimer.restart();
+    }
+    function refreshAllSubscriptions() {
+        if (!root.rpc || root.subscriptionRefreshing)
+            return;
+        root.subscriptionRefreshing = true;
+        var pending = subscriptionManager.items.slice();
+        var updated = 0;
+        function next() {
+            if (pending.length === 0) {
+                root.subscriptionRefreshing = false;
+                showSuccess("Subscriptions refreshed (" + updated + " profiles updated)");
+                root.refresh();
+                return;
+            }
+            var item = pending.shift();
+            root.message = "Refreshing " + item.name + "…";
+            root.rpc.call("subscription.refresh", {
+                subscriptionId: item.id
+            }, function (result, error) {
+                if (error) {
+                    root.subscriptionRefreshing = false;
+                    root.message = error.message;
+                    return;
+                }
+                updated += Number(result.updated || 0);
+                next();
+            });
+        }
+        next();
+    }
+    function moveProfile(profileId, delta) {
+        var ids = root.allProfiles.map(function (profile) {
+            return profile.id;
+        });
+        var from = ids.indexOf(profileId);
+        var to = from + delta;
+        if (from < 0 || to < 0 || to >= ids.length)
+            return;
+        var moved = ids.splice(from, 1)[0];
+        ids.splice(to, 0, moved);
+        root.rpc.call("profile.reorder", {
+            profileIds: ids
+        }, function (result, error) {
+            root.message = error ? error.message : "Profile order saved";
+            if (!error)
+                root.refresh();
+        });
+    }
+    function refreshStatus() {
+        if (!root.rpc || !root.rpc.connected)
+            return;
+        root.rpc.call("system.status", {}, function (result, error) {
+            if (!error) {
+                root.connected = !!result.connected;
+                root.connecting = !!result.connecting;
+                if (result.profileId)
+                    root.selectedId = result.profileId;
+                root.connectionDetail = result.connected ? ((result.profileName || "Profile") + " • " + (result.core || "core") + " • 127.0.0.1:" + (result.localPort || "") + (result.lastHealth && result.lastHealth.ok ? " • verified " + result.lastHealth.latencyMs + " ms" : " • health pending")) : "";
+                root.ipProtectionDetail = result.lastIp ? (result.lastIp.protected ? "External IP protected" : "External IP not changed") : "IP check not run";
+            }
+        });
+    }
+    function refreshSubscriptions() {
+        if (!root.rpc)
+            return;
+        root.rpc.call("subscription.list", {}, function (result, error) {
+            if (!error) {
+                subscriptionManager.items = result || [];
+                var errors = subscriptionManager.items.filter(function (s) {
+                    return !!s.lastError;
+                }).length;
+                var enabled = subscriptionManager.items.filter(function (s) {
+                    return !!s.enabled;
+                }).length;
+                root.subscriptionSummary = subscriptionManager.items.length + " sources • " + enabled + " enabled" + (errors ? " • " + errors + " with errors" : "");
+            } else
+                root.message = error.message || "Could not load subscriptions";
+        });
+    }
+    Component.onCompleted: root.refresh()
+    Connections {
+        target: root.rpc
+        function onConnectedChanged() {
+            if (root.rpc.connected)
+                root.refresh();
+        }
+    }
+    Timer {
+        interval: 2000
+        repeat: true
+        running: root.visible
+        triggeredOnStart: true
+        onTriggered: root.refreshStatus()
+    }
+    Timer {
+        id: ipTimer
+        interval: 60000
+        repeat: true
+        running: root.visible && root.connected
+        onTriggered: root.checkExternalIp()
+    }
+    Timer {
+        interval: 1000
+        repeat: true
+        running: subscriptionManager.visible
+        triggeredOnStart: true
+        onTriggered: root.refreshSubscriptions()
+    }
+    Timer {
+        id: settingsMessageTimer
+        interval: 3500
+        repeat: false
+        onTriggered: root.message = ""
+    }
+    function checkExternalIp() {
+        if (!root.rpc || !root.connected || root.ipCheckRunning)
+            return;
+        root.ipCheckRunning = true;
+        root.ipProtectionDetail = "Checking external IP…";
+        root.rpc.call("test.ip", {}, function (result, error) {
+            root.ipCheckRunning = false;
+            if (error) {
+                root.ipProtectionDetail = "IP check failed";
+                root.ipCheckedAt = new Date().toLocaleTimeString();
+                return;
+            }
+            root.ipProtectionDetail = result.protected ? "External IP protected" : "External IP not changed";
+            root.ipCheckedAt = new Date().toLocaleTimeString();
+        });
+    }
+    function runDiagnostic(method, params, label) {
+        if (!root.rpc || root.diagnosticRunning)
+            return;
+        root.diagnosticRunning = true;
+        root.message = label + "…";
+        root.rpc.call(method, params || {}, function (result, error) {
+            root.diagnosticRunning = false;
+            if (error) {
+                root.message = error.message || (label + " failed");
+                return;
+            }
+            if (method === "test.tcp")
+                root.message = (result.ok ? "TCP reachable" : "TCP failed") + " • " + (result.latencyMs || "n/a") + " ms";
+            else if (method === "test.proxy")
+                root.message = (result.ok ? "Proxy reachable" : "Proxy failed") + " • " + (result.latencyMs || "n/a") + " ms";
+            else
+                root.message = (result.ok ? "Speed" : "Speed test failed") + " • " + Number(result.megabitsPerSecond || 0).toFixed(1) + " Mbps";
+        });
+    }
+    function testAndConnect(profileId, host, port) {
+        if (!root.rpc || root.diagnosticRunning || root.connected)
+            return;
+        root.diagnosticRunning = true;
+        root.message = "Testing profile…";
+        root.rpc.call("test.tcp", {
+            host: host,
+            port: port
+        }, function (result, error) {
+            if (error || !result.ok) {
+                root.diagnosticRunning = false;
+                root.message = error ? error.message : "TCP test failed; profile was not connected";
+                return;
+            }
+            root.message = "TCP passed; connecting…";
+            root.rpc.call("profile.connect", {
+                profileId: profileId
+            }, function (connectResult, connectError) {
+                root.diagnosticRunning = false;
+                if (connectError)
+                    root.message = connectError.message || "Connection failed";
+                else {
+                    root.message = "Connection established";
+                    root.selectedId = profileId;
+                    root.refreshStatus();
+                }
+            });
+        });
+    }
+    Rectangle {
+        anchors.fill: parent
+        color: Color.background
+    }
+    Loader {
+        id: subscriptionStatusLoader
+        sourceComponent: Component {
+            Dialog {
+                modal: true
+                title: "Subscription status"
+                standardButtons: Dialog.Close
+                contentItem: TextArea {
+                    id: statusText
+                    width: 520
+                    height: 300
+                    readOnly: true
+                    wrapMode: TextEdit.NoWrap
+                    selectByMouse: true
+                }
+            }
+        }
+    }
+    Loader {
+        id: rawEditorLoader
+        sourceComponent: Component {
+            Dialog {
+                modal: true
+                title: "Raw profile configuration"
+                standardButtons: Dialog.Save | Dialog.Cancel
+                property string profileId: ""
+                contentItem: TextArea {
+                    id: rawText
+                    width: 560
+                    height: 320
+                    wrapMode: TextEdit.NoWrap
+                    selectByMouse: true
+                }
+                onAccepted: root.rpc.call("profile.raw.update", {
+                    profileId: rawEditorLoader.item.profileId,
+                    raw: rawText.text
+                }, function (result, error) {
+                    root.message = error ? error.message : "Raw configuration saved";
+                    if (!error)
+                        rawEditorLoader.item.close();
+                    root.refresh();
+                })
+            }
+        }
+    }
+    Loader {
+        id: protocolEditorLoader
+        sourceComponent: Component {
+            Dialog {
+                modal: true
+                title: "Quick protocol fields"
+                standardButtons: Dialog.Save | Dialog.Cancel
+                property string profileId: ""
+                function load(profile) {
+                    profileId = profile.id;
+                    uuid.text = profile.fields && profile.fields.user || "";
+                    password.text = profile.fields && profile.fields.password || "";
+                    security.text = profile.fields && (profile.fields.security || profile.fields.tls) || "";
+                    sni.text = profile.fields && profile.fields.sni || "";
+                    network.text = profile.fields && (profile.fields.type || profile.fields.network) || "";
+                    path.text = profile.fields && profile.fields.path || "";
+                    method.text = profile.fields && profile.fields.method || "";
+                    obfs.text = profile.fields && (profile.fields.obfs || profile.fields["obfs-password"]) || "";
+                    privateKey.text = profile.fields && profile.fields.private_key || "";
+                    publicKey.text = profile.fields && profile.fields.public_key || "";
+                    address.text = profile.fields && profile.fields.local_address || "";
+                }
+                contentItem: Column {
+                    spacing: 8
+                    TextField {
+                        id: uuid
+                        placeholderText: "UUID / user"
+                    }
+                    TextField {
+                        id: password
+                        placeholderText: "Password"
+                        echoMode: TextInput.Password
+                    }
+                    TextField {
+                        id: security
+                        placeholderText: "Security (tls/none)"
+                    }
+                    TextField {
+                        id: sni
+                        placeholderText: "SNI / server name"
+                    }
+                    TextField {
+                        id: network
+                        placeholderText: "Network (ws/tcp)"
+                    }
+                    TextField {
+                        id: path
+                        placeholderText: "Path"
+                    }
+                    TextField {
+                        id: method
+                        placeholderText: "Shadowsocks method"
+                    }
+                    TextField {
+                        id: obfs
+                        placeholderText: "Obfuscation / obfs password"
+                    }
+                    TextField {
+                        id: privateKey
+                        placeholderText: "WireGuard private key"
+                        echoMode: TextInput.Password
+                    }
+                    TextField {
+                        id: publicKey
+                        placeholderText: "WireGuard public key"
+                    }
+                    TextField {
+                        id: address
+                        placeholderText: "WireGuard local address"
+                    }
+                }
+                onAccepted: root.rpc.call("profile.fields.update", {
+                    profileId: protocolEditorLoader.item.profileId,
+                    fields: {
+                        user: uuid.text,
+                        password: password.text,
+                        security: security.text,
+                        sni: sni.text,
+                        type: network.text,
+                        path: path.text,
+                        method: method.text,
+                        obfs: obfs.text,
+                        private_key: privateKey.text,
+                        public_key: publicKey.text,
+                        local_address: address.text
+                    }
+                }, function (result, error) {
+                    root.message = error ? error.message : "Protocol fields saved";
+                    if (!error) {
+                        protocolEditorLoader.item.close();
+                        root.refresh();
+                    }
+                })
+            }
+        }
+    }
+    Loader {
+        id: qrImageLoader
+        sourceComponent: Component {
+            Dialog {
+                modal: true
+                title: "QR code"
+                standardButtons: Dialog.Close
+                contentItem: Image {
+                    id: qrImage
+                    width: 320
+                    height: 320
+                    fillMode: Image.PreserveAspectFit
+                }
+            }
+        }
+    }
+    Column {
+        anchors.fill: parent
+        anchors.margins: 18
+        spacing: 12
         Row {
-          anchors.fill: parent; anchors.margins: 8; spacing: 10
-          Column { width: parent.width - 230; Text { text: modelData.name; color: Color.foreground; elide: Text.ElideRight } Text { text: (modelData.group ? modelData.group + " • " : "") + (modelData.server || "") + (modelData.port ? ":" + modelData.port : ""); color: Qt.darker(Color.foreground, 1.5) } Text { property var health: root.bulkResults.find(function(r) { return r.profileId === modelData.id }) || modelData.lastTest; visible: health !== undefined; text: health && health.ok ? "✓ Verified • " + health.latencyMs + " ms" : "✗ Failed • " + ((health && health.error) || "health check failed"); color: health && health.ok ? "#74d99f" : "#ef6a6a" } }
-          Button { text: modelData.favorite ? "★" : "☆"; onClicked: root.rpc.call("profile.favorite", { profileId: modelData.id, favorite: !modelData.favorite }, function(result, error) { root.message = error ? error.message : ""; if (!error) root.refresh() }) }
-          Button { text: "↑"; enabled: root.sortMode === "manual" && root.query === "" && root.groupFilter === "" && !root.favoritesOnly; onClicked: root.moveProfile(modelData.id, -1) }
-          Button { text: "↓"; enabled: root.sortMode === "manual" && root.query === "" && root.groupFilter === "" && !root.favoritesOnly; onClicked: root.moveProfile(modelData.id, 1) }
-          Button { text: "Use"; Accessible.name: "Select " + modelData.name; onClicked: root.selectedId = modelData.id }
-          Button { text: modelData.enabled ? "On" : "Off"; onClicked: root.rpc.call("profile.enable", { profileId:modelData.id, enabled:!modelData.enabled }, function(result, error) { root.message = error ? error.message : ""; if (!error) root.refresh() }) }
-          Button { text: "•••"; Accessible.name: "Open actions for " + modelData.name; onClicked: details.open() }
+            spacing: 12
+            Text {
+                text: "Rayarchy"
+                color: Color.foreground
+                font.bold: true
+                font.pixelSize: 22
+            }
+            Text {
+                text: root.connected ? root.connectionDetail : (root.connecting ? "Connecting…" : "Disconnected")
+                color: root.connected ? "#74d99f" : (root.connecting ? "#efb06a" : Qt.darker(Color.foreground, 1.4))
+                Accessible.name: text
+            }
+            Button {
+                text: root.connected ? "Disconnect" : (root.connecting ? "Connecting…" : "Connect")
+                enabled: (root.selectedId !== "" || root.connected) && !root.connecting
+                onClicked: if (root.rpc)
+                    root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : {
+                        profileId: root.selectedId
+                    }, function (result, error) {
+                        if (error) {
+                            root.message = error.message || "Connection failed";
+                        } else {
+                            root.message = root.connected ? "Disconnected" : "Connected";
+                            root.refreshStatus();
+                        }
+                    })
+            }
         }
-        Dialog {
-          id: details; title: modelData.name; modal: true; standardButtons: Dialog.Close
-          contentItem: Column {
+        Button {
+            text: root.ipCheckRunning ? "Checking IP…" : "Check external IP"
+            enabled: root.connected && !root.ipCheckRunning
+            Accessible.name: "Check external IP protection"
+            onClicked: root.checkExternalIp()
+        }
+    }
+    Text {
+        text: root.ipProtectionDetail + (root.ipCheckedAt !== "" ? " • " + root.ipCheckedAt : "")
+        visible: root.connected && text !== ""
+        color: root.ipProtectionDetail === "External IP protected" ? "#74d99f" : "#efb06a"
+    }
+    TextField {
+        id: searchField
+        width: parent.width
+        placeholderText: "Search profiles…"
+        onTextChanged: {
+            root.query = text;
+            root.refresh();
+        }
+    }
+    Row {
+        spacing: 8
+        ComboBox {
+            id: groupPicker
+            model: root.groups()
+            onActivated: {
+                root.groupFilter = currentIndex === 0 ? "" : currentText;
+                root.refresh();
+            }
+        }
+        ComboBox {
+            model: ["manual", "name", "server", "favorites"]
+            onActivated: {
+                root.sortMode = currentText;
+                root.refresh();
+            }
+        }
+        CheckBox {
+            text: "Favorites"
+            checked: root.favoritesOnly
+            onToggled: {
+                root.favoritesOnly = checked;
+                root.refresh();
+            }
+        }
+        CheckBox {
+            text: "Healthy only"
+            checked: root.healthOnly
+            onToggled: {
+                root.healthOnly = checked;
+                root.refresh();
+            }
+        }
+        Button {
+            text: "Clear filters"
+            visible: root.query !== "" || root.groupFilter !== "" || root.favoritesOnly || root.healthOnly || root.sortMode !== "manual"
+            onClicked: {
+                searchField.text = "";
+                root.query = "";
+                root.groupFilter = "";
+                root.favoritesOnly = false;
+                root.healthOnly = false;
+                root.sortMode = "manual";
+                groupPicker.currentIndex = 0;
+                root.refresh();
+            }
+        }
+    }
+    Text {
+        visible: root.profiles.length === 0
+        text: "No profiles yet. Add a profile or subscription to begin."
+        color: Color.foreground
+    }
+    Text {
+        visible: root.message !== ""
+        text: root.message
+        color: Color.accent
+        width: parent.width
+        wrapMode: Text.WordWrap
+    }
+    ListView {
+        width: parent.width
+        height: Math.max(80, parent.height - y - 54)
+        focus: true
+        keyNavigationEnabled: true
+        activeFocusOnTab: true
+        model: root.profiles
+        onCurrentIndexChanged: if (currentIndex >= 0 && currentIndex < root.profiles.length)
+            root.selectedId = root.profiles[currentIndex].id
+        delegate: Rectangle {
+            width: ListView.view.width
+            height: 58
+            color: "transparent"
+            Accessible.name: modelData.name + ", " + (modelData.protocol || "profile") + (modelData.server ? ", " + modelData.server : "")
+            border.color: root.selectedId === modelData.id ? Color.accent : (ListView.view.activeFocus ? Qt.lighter(Color.foreground, 1.2) : Color.foreground)
+            border.width: root.selectedId === modelData.id ? 2 : 1
+            Row {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 10
+                Column {
+                    width: parent.width - 230
+                    Text {
+                        text: modelData.name
+                        color: Color.foreground
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        text: (modelData.group ? modelData.group + " • " : "") + (modelData.server || "") + (modelData.port ? ":" + modelData.port : "")
+                        color: Qt.darker(Color.foreground, 1.5)
+                    }
+                    Text {
+                        property var health: root.bulkResults.find(function (r) {
+                            return r.profileId === modelData.id;
+                        }) || modelData.lastTest
+                        visible: health !== undefined
+                        text: health && health.ok ? "✓ Verified • " + health.latencyMs + " ms" : "✗ Failed • " + ((health && health.error) || "health check failed")
+                        color: health && health.ok ? "#74d99f" : "#ef6a6a"
+                    }
+                }
+                Button {
+                    text: modelData.favorite ? "★" : "☆"
+                    onClicked: root.rpc.call("profile.favorite", {
+                        profileId: modelData.id,
+                        favorite: !modelData.favorite
+                    }, function (result, error) {
+                        root.message = error ? error.message : "";
+                        if (!error)
+                            root.refresh();
+                    })
+                }
+                Button {
+                    text: "↑"
+                    enabled: root.sortMode === "manual" && root.query === "" && root.groupFilter === "" && !root.favoritesOnly
+                    onClicked: root.moveProfile(modelData.id, -1)
+                }
+                Button {
+                    text: "↓"
+                    enabled: root.sortMode === "manual" && root.query === "" && root.groupFilter === "" && !root.favoritesOnly
+                    onClicked: root.moveProfile(modelData.id, 1)
+                }
+                Button {
+                    text: "Use"
+                    Accessible.name: "Select " + modelData.name
+                    onClicked: root.selectedId = modelData.id
+                }
+                Button {
+                    text: modelData.enabled ? "On" : "Off"
+                    onClicked: root.rpc.call("profile.enable", {
+                        profileId: modelData.id,
+                        enabled: !modelData.enabled
+                    }, function (result, error) {
+                        root.message = error ? error.message : "";
+                        if (!error)
+                            root.refresh();
+                    })
+                }
+                Button {
+                    text: "•••"
+                    Accessible.name: "Open actions for " + modelData.name
+                    onClicked: details.open()
+                }
+            }
+            Dialog {
+                id: details
+                title: modelData.name
+                modal: true
+                standardButtons: Dialog.Close
+                contentItem: Column {
+                    spacing: 8
+                    Text {
+                        text: modelData.protocol + "  " + (modelData.server || "") + ":" + (modelData.port || "")
+                        color: Color.foreground
+                    }
+                    Text {
+                        text: modelData.lastTest ? (modelData.lastTest.ok ? "Verified " + modelData.lastTest.latencyMs + " ms • " + new Date(Number(modelData.lastTest.timestamp || 0) * 1000).toLocaleString() : "Last health check failed • " + (modelData.lastTest.error || "unknown error")) : "No recent verified health result"
+                        color: modelData.lastTest && modelData.lastTest.ok ? "#74d99f" : "#efb06a"
+                        wrapMode: Text.WordWrap
+                    }
+                    Button {
+                        text: root.diagnosticRunning ? "Testing…" : "Re-test this profile"
+                        enabled: !root.diagnosticRunning
+                        Accessible.name: "Re-test " + modelData.name
+                        onClicked: root.runDiagnostic("test.tcp", {
+                            host: modelData.server || "",
+                            port: modelData.port || 443
+                        }, "Profile test")
+                    }
+                    Button {
+                        text: "Test then connect"
+                        enabled: !root.diagnosticRunning && !root.connected
+                        Accessible.name: "Test then connect " + modelData.name
+                        onClicked: root.testAndConnect(modelData.id, modelData.server || "", modelData.port || 443)
+                    }
+                    Button {
+                        text: "Connect this profile"
+                        enabled: !root.connected
+                        onClicked: root.rpc.call("profile.connect", {
+                            profileId: modelData.id
+                        }, function (result, error) {
+                            if (error)
+                                root.message = error.message || "Connection failed";
+                            else {
+                                root.message = "Connection established";
+                                root.refreshStatus();
+                                details.close();
+                            }
+                        })
+                    }
+                    Button {
+                        text: root.diagnosticRunning ? "Testing…" : "TCP ping"
+                        enabled: !root.diagnosticRunning
+                        onClicked: root.runDiagnostic("test.tcp", {
+                            host: modelData.server || "",
+                            port: modelData.port || 443
+                        }, "TCP test")
+                    }
+                    Button {
+                        text: "Validate core config"
+                        onClicked: root.rpc.call("core.validate", {
+                            profileId: modelData.id
+                        }, function (result, error) {
+                            root.message = error ? error.message : (result.ok ? "Configuration accepted by " + result.core : "Configuration rejected");
+                        })
+                    }
+                    Button {
+                        text: "Protocol fields"
+                        onClicked: root.rpc.call("profile.schema", {
+                            protocol: modelData.protocol
+                        }, function (result, error) {
+                            subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2);
+                            subscriptionStatusLoader.item.open();
+                        })
+                    }
+                    Button {
+                        text: "Quick edit fields"
+                        onClicked: {
+                            structuredEditor.load(modelData);
+                            structuredEditor.open();
+                        }
+                    }
+                    Button {
+                        text: root.diagnosticRunning ? "Testing…" : "Proxy ping"
+                        enabled: !root.diagnosticRunning
+                        onClicked: root.runDiagnostic("test.proxy", {}, "Proxy test")
+                    }
+                    Button {
+                        text: "Check external IP"
+                        onClicked: root.rpc.call("test.ip", {}, function (result, error) {
+                            root.message = error ? error.message : (result.protected ? "Proxy IP: " + result.proxyIp : "Proxy is not changing the external IP");
+                        })
+                    }
+                    Button {
+                        text: root.diagnosticRunning ? "Testing…" : "Speed test"
+                        enabled: !root.diagnosticRunning
+                        onClicked: root.runDiagnostic("test.speed", {}, "Speed test")
+                    }
+                    Button {
+                        text: "Test history"
+                        onClicked: {
+                            details.close();
+                            history.profileId = modelData.id;
+                            history.profileName = modelData.name;
+                            root.rpc.call("test.history", {
+                                profileId: modelData.id
+                            }, function (result, error) {
+                                historyText.text = error ? error.message : root.formatHistory(result);
+                                history.open();
+                            });
+                        }
+                    }
+                    Button {
+                        text: "View daemon logs"
+                        onClicked: {
+                            details.close();
+                            root.rpc.call("system.logs", {
+                                limit: 200
+                            }, function (result, error) {
+                                logsText.text = error ? error.message : (result.lines || []).join("\n");
+                                logs.open();
+                            });
+                        }
+                    }
+                    Button {
+                        text: "Clear health result"
+                        onClicked: root.rpc.call("test.history.clear", {
+                            profileId: modelData.id
+                        }, function (result, error) {
+                            root.message = error ? error.message : "Health result cleared";
+                            if (!error)
+                                root.refresh();
+                        })
+                    }
+                    Button {
+                        text: "Edit"
+                        Accessible.name: "Edit " + modelData.name
+                        onClicked: {
+                            details.close();
+                            nameEdit.text = modelData.name;
+                            groupEdit.text = modelData.group || "";
+                            serverEdit.text = modelData.server || "";
+                            portEdit.text = String(modelData.port || "");
+                            fieldsEdit.text = JSON.stringify(modelData.fields || {}, null, 2);
+                            edit.open();
+                        }
+                    }
+                    Button {
+                        text: "Edit raw configuration"
+                        onClicked: {
+                            rawEditorLoader.item.profileId = modelData.id;
+                            rawEditorLoader.item.contentItem.children[0].text = modelData.raw || "";
+                            rawEditorLoader.item.open();
+                        }
+                    }
+                    Button {
+                        text: "Export"
+                        onClicked: root.rpc.call("profile.export", {
+                            profileId: modelData.id
+                        }, function (result, error) {
+                            if (!error)
+                                exportText.text = result.payload || "";
+                            exportDialog.open();
+                        })
+                    }
+                    Button {
+                        text: "QR / share"
+                        onClicked: root.rpc.call("profile.qr", {
+                            profileId: modelData.id
+                        }, function (result, error) {
+                            if (!error)
+                                qrText.text = result.payload || "";
+                            qrDialog.open();
+                        })
+                    }
+                    Button {
+                        text: "QR image"
+                        onClicked: root.rpc.call("profile.qr.image", {
+                            profileId: modelData.id
+                        }, function (result, error) {
+                            if (error)
+                                root.message = error.message;
+                            else {
+                                qrImageLoader.item.contentItem.source = result.imagePath;
+                                qrImageLoader.item.open();
+                            }
+                        })
+                    }
+                    Button {
+                        text: "Delete"
+                        Accessible.name: "Delete " + modelData.name
+                        onClicked: {
+                            details.close();
+                            pendingDeleteId = modelData.id;
+                            pendingDeleteName = modelData.name;
+                            confirmDelete.open();
+                        }
+                    }
+                }
+            }
+            Dialog {
+                id: edit
+                title: "Edit profile"
+                modal: true
+                standardButtons: Dialog.Save | Dialog.Cancel
+                contentItem: Column {
+                    spacing: 8
+                    Text {
+                        text: "Protocol: " + modelData.protocol + " • use Protocol fields for supported options"
+                        color: Color.accent
+                        wrapMode: Text.WordWrap
+                    }
+                    TextField {
+                        id: nameEdit
+                        placeholderText: "Profile name"
+                    }
+                    TextField {
+                        id: groupEdit
+                        placeholderText: "Group (optional)"
+                    }
+                    TextField {
+                        id: serverEdit
+                        placeholderText: "Server"
+                    }
+                    TextField {
+                        id: portEdit
+                        placeholderText: "Port"
+                        inputMethodHints: Qt.ImhDigitsOnly
+                    }
+                    TextArea {
+                        id: fieldsEdit
+                        width: 460
+                        height: 180
+                        placeholderText: "Protocol fields (JSON)"
+                        selectByMouse: true
+                    }
+                }
+                onAccepted: {
+                    var fields;
+                    try {
+                        fields = JSON.parse(fieldsEdit.text || "{}");
+                    } catch (e) {
+                        root.message = "Invalid protocol fields JSON";
+                        edit.open();
+                        return;
+                    }
+                    root.rpc.call("profile.update", {
+                        profile: {
+                            id: modelData.id,
+                            name: nameEdit.text,
+                            protocol: modelData.protocol,
+                            core: modelData.core,
+                            enabled: modelData.enabled,
+                            favorite: modelData.favorite,
+                            group: groupEdit.text.trim(),
+                            server: serverEdit.text,
+                            port: Number(portEdit.text),
+                            sourceId: modelData.sourceId,
+                            fields: fields,
+                            raw: modelData.raw
+                        }
+                    }, function (result, error) {
+                        if (error)
+                            root.message = error.message;
+                        else
+                            showSuccess("Profile saved");
+                        if (!error)
+                            root.refresh();
+                    });
+                }
+                Dialog {
+                    id: exportDialog
+                    title: "Export payload"
+                    modal: true
+                    standardButtons: Dialog.Close
+                    contentItem: TextArea {
+                        id: exportText
+                        readOnly: true
+                        wrapMode: TextEdit.Wrap
+                        selectByMouse: true
+                    }
+                }
+                Dialog {
+                    id: qrDialog
+                    title: "QR payload"
+                    modal: true
+                    standardButtons: Dialog.Close
+                    contentItem: Column {
+                        spacing: 8
+                        Text {
+                            text: "Use this payload with a QR scanner or copy it to another device."
+                            color: Color.foreground
+                            wrapMode: Text.WordWrap
+                        }
+                        TextArea {
+                            id: qrText
+                            width: 400
+                            height: 180
+                            readOnly: true
+                            wrapMode: TextEdit.Wrap
+                            selectByMouse: true
+                        }
+                    }
+                }
+            }
+        }
+        Button {
+            text: "Add profile"
+            onClicked: addDialog.open()
+        }
+        Button {
+            text: "Subscriptions"
+            Accessible.name: "Manage subscriptions"
+            onClicked: {
+                subscriptionManager.open();
+            }
+        }
+        Button {
+            text: "Subscription status"
+            onClicked: {
+                root.rpc.call("subscription.list", {}, function (result, error) {
+                    subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2);
+                    if (!error)
+                        root.refreshSubscriptions();
+                    subscriptionStatusLoader.item.open();
+                });
+            }
+        }
+        Button {
+            text: "Refresh history"
+            onClicked: {
+                root.refreshSubscriptions();
+                subscriptionHistoryView.open();
+            }
+        }
+        Button {
+            text: root.subscriptionRefreshing ? "Refreshing subscriptions…" : "Refresh all subscriptions"
+            Accessible.name: "Refresh all subscriptions"
+            enabled: !root.subscriptionRefreshing
+            onClicked: refreshAllSubscriptions()
+        }
+        Button {
+            text: "Bulk TCP test"
+            Accessible.name: "Test TCP connectivity for all profiles"
+            onClicked: {
+                root.rpc.call("test.bulk", {
+                    profileIds: root.profiles.map(function (p) {
+                        return p.id;
+                    })
+                }, function (result, error) {
+                    subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2);
+                    subscriptionStatusLoader.item.open();
+                });
+            }
+        }
+        Button {
+            text: "Clear all test history"
+            onClicked: clearHistoryConfirm.open()
+        }
+        Button {
+            text: "Test all proxy connections"
+            onClicked: {
+                root.rpc.call("test.bulk.proxy", {
+                    profileIds: root.profiles.map(function (p) {
+                        return p.id;
+                    })
+                }, function (result, error) {
+                    if (!error)
+                        root.bulkResults = result.results || [];
+                    subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : root.formatBulkResults(root.bulkResults);
+                    subscriptionStatusLoader.item.open();
+                });
+            }
+        }
+        Button {
+            text: "Use best working profile"
+            enabled: root.bulkResults.some(function (r) {
+                return r.ok;
+            })
+            onClicked: {
+                var candidates = root.bulkResults.filter(function (r) {
+                    return r.ok;
+                }).sort(function (a, b) {
+                    return Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999);
+                });
+                if (candidates.length) {
+                    root.selectedId = candidates[0].profileId;
+                    root.message = "Selected " + candidates[0].name + " (" + candidates[0].latencyMs + " ms)";
+                }
+            }
+        }
+        Button {
+            text: "Sort results: " + root.bulkSortMode
+            enabled: root.bulkResults.length > 0
+            onClicked: {
+                root.cycleBulkSort();
+                subscriptionStatusLoader.item.contentItem.children[0].text = root.formatBulkResults(root.bulkResults);
+            }
+        }
+        Text {
+            visible: root.bulkResults.length > 0
+            text: root.bulkHealthSummary()
+            color: root.bulkResults.every(function (r) {
+                return r.ok;
+            }) ? "#74d99f" : "#efb06a"
+        }
+        Button {
+            text: "Connect selected profile"
+            enabled: root.selectedId !== "" && !root.connected
+            onClicked: {
+                root.rpc.call("profile.connect", {
+                    profileId: root.selectedId
+                }, function (result, error) {
+                    root.message = error ? error.message : "Connection established";
+                    if (!error)
+                        root.refreshStatus();
+                    subscriptionStatusLoader.item.close();
+                });
+            }
+        }
+        Button {
+            text: "Cancel active test/connection"
+            visible: root.diagnosticRunning || root.connecting
+            enabled: root.diagnosticRunning || root.connecting
+            onClicked: {
+                root.rpc.call("profile.connect.cancel", {}, function (result, error) {
+                    root.diagnosticRunning = false;
+                    root.connecting = false;
+                    root.message = error ? error.message : "Operation cancelled";
+                    root.refreshStatus();
+                });
+            }
+        }
+        Button {
+            text: "Cancel bulk test"
+            onClicked: root.rpc.call("test.bulk.cancel", {}, function (result, error) {
+                root.message = error ? error.message : "Bulk test cancellation requested";
+            })
+        }
+        Text {
+            text: root.subscriptionSummary
+            visible: text !== ""
+            color: root.subscriptionSummary.indexOf("errors") >= 0 ? "#ef6a6a" : Qt.darker(Color.foreground, 1.5)
+        }
+        Button {
+            text: "Settings"
+            Accessible.name: "Open Rayarchy settings"
+            onClicked: settings.open()
+        }
+        Button {
+            text: "Logs"
+            onClicked: {
+                if (root.rpc)
+                    root.rpc.call("system.diagnostics", {}, function (diag, diagError) {
+                        root.rpc.call("system.logs", {
+                            limit: 200
+                        }, function (result, error) {
+                            if (error || diagError)
+                                logsText.text = (error || diagError).message;
+                            else
+                                logsText.text = "Core PID: " + (diag.status.corePid || "none") + "\nCore uptime: " + (diag.status.coreUptimeSeconds === null ? "stopped" : (diag.status.coreUptimeSeconds || 0) + "s") + "\n\n" + (result.lines || []).join("\n");
+                            logs.open();
+                        });
+                    });
+            }
+        }
+        Button {
+            text: "Diagnostics"
+            Accessible.name: "Open daemon diagnostics"
+            onClicked: {
+                if (root.rpc)
+                    root.rpc.call("system.diagnostics", {}, function (result, error) {
+                        diagnosticsText.text = error ? error.message : JSON.stringify(result, null, 2);
+                        diagnostics.open();
+                    });
+            }
+        }
+        Button {
+            text: "Routing"
+            Accessible.name: "Manage routing rules"
+            onClicked: routing.open()
+        }
+        Button {
+            text: "Backup"
+            onClicked: {
+                if (root.rpc)
+                    root.rpc.call("backup.export", {}, function (result, error) {
+                        backupText.text = error ? error.message : JSON.stringify(result);
+                        backup.open();
+                    });
+            }
+        }
+    }
+    property string pendingDeleteId: ""
+    property string pendingDeleteName: ""
+    Dialog {
+        id: confirmDelete
+        modal: true
+        title: "Delete profile?"
+        standardButtons: Dialog.Yes | Dialog.No
+        contentItem: Text {
+            text: "Delete “" + root.pendingDeleteName + "”? This cannot be undone."
+            color: Color.foreground
+            wrapMode: Text.WordWrap
+        }
+        onAccepted: root.rpc.call("profile.delete", {
+            profileId: root.pendingDeleteId
+        }, function (result, error) {
+            root.message = error ? error.message : "Profile deleted";
+            if (!error) {
+                root.selectedId = "";
+                root.refresh();
+            }
+        })
+    }
+    Dialog {
+        id: history
+        modal: true
+        title: "Test history"
+        standardButtons: Dialog.Close
+        property string profileId: ""
+        property string profileName: ""
+        contentItem: Column {
             spacing: 8
-            Text { text: modelData.protocol + "  " + (modelData.server || "") + ":" + (modelData.port || ""); color: Color.foreground }
-            Text { text: modelData.lastTest ? (modelData.lastTest.ok ? "Verified " + modelData.lastTest.latencyMs + " ms • " + new Date(Number(modelData.lastTest.timestamp || 0) * 1000).toLocaleString() : "Last health check failed • " + (modelData.lastTest.error || "unknown error")) : "No recent verified health result"; color: modelData.lastTest && modelData.lastTest.ok ? "#74d99f" : "#efb06a"; wrapMode: Text.WordWrap }
-            Button { text: root.diagnosticRunning ? "Testing…" : "Re-test this profile"; enabled: !root.diagnosticRunning; Accessible.name: "Re-test " + modelData.name; onClicked: root.runDiagnostic("test.tcp", { host:modelData.server || "", port:modelData.port || 443 }, "Profile test") }
-            Button { text: "Test then connect"; enabled: !root.diagnosticRunning && !root.connected; Accessible.name: "Test then connect " + modelData.name; onClicked: root.testAndConnect(modelData.id, modelData.server || "", modelData.port || 443) }
-            Button { text: "Connect this profile"; enabled: !root.connected; onClicked: root.rpc.call("profile.connect", { profileId:modelData.id }, function(result,error) { if (error) root.message = error.message || "Connection failed"; else { root.message = "Connection established"; root.refreshStatus(); details.close() } }) }
-            Button { text: root.diagnosticRunning ? "Testing…" : "TCP ping"; enabled: !root.diagnosticRunning; onClicked: root.runDiagnostic("test.tcp", { host:modelData.server || "", port:modelData.port || 443 }, "TCP test") }
-            Button { text: "Validate core config"; onClicked: root.rpc.call("core.validate", { profileId:modelData.id }, function(result,error) { root.message = error ? error.message : (result.ok ? "Configuration accepted by " + result.core : "Configuration rejected") }) }
-            Button { text: "Protocol fields"; onClicked: root.rpc.call("profile.schema", { protocol:modelData.protocol }, function(result,error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); subscriptionStatusLoader.item.open() }) }
-            Button { text: "Quick edit fields"; onClicked: { structuredEditor.load(modelData); structuredEditor.open() } }
-            Button { text: root.diagnosticRunning ? "Testing…" : "Proxy ping"; enabled: !root.diagnosticRunning; onClicked: root.runDiagnostic("test.proxy", {}, "Proxy test") }
-            Button { text: "Check external IP"; onClicked: root.rpc.call("test.ip", {}, function(result,error) { root.message = error ? error.message : (result.protected ? "Proxy IP: " + result.proxyIp : "Proxy is not changing the external IP") }) }
-            Button { text: root.diagnosticRunning ? "Testing…" : "Speed test"; enabled: !root.diagnosticRunning; onClicked: root.runDiagnostic("test.speed", {}, "Speed test") }
-            Button { text: "Test history"; onClicked: { details.close(); history.profileId = modelData.id; history.profileName = modelData.name; root.rpc.call("test.history", { profileId:modelData.id }, function(result,error) { historyText.text = error ? error.message : root.formatHistory(result); history.open() }) } }
-            Button { text: "View daemon logs"; onClicked: { details.close(); root.rpc.call("system.logs", { limit:200 }, function(result,error) { logsText.text = error ? error.message : (result.lines || []).join("\n"); logs.open() }) } }
-            Button { text: "Clear health result"; onClicked: root.rpc.call("test.history.clear", { profileId:modelData.id }, function(result,error) { root.message = error ? error.message : "Health result cleared"; if (!error) root.refresh() }) }
-          Button { text: "Edit"; Accessible.name: "Edit " + modelData.name; onClicked: { details.close(); nameEdit.text=modelData.name; groupEdit.text=modelData.group || ""; serverEdit.text=modelData.server || ""; portEdit.text=String(modelData.port || ""); fieldsEdit.text=JSON.stringify(modelData.fields || {}, null, 2); edit.open() } }
-            Button { text: "Edit raw configuration"; onClicked: { rawEditorLoader.item.profileId = modelData.id; rawEditorLoader.item.contentItem.children[0].text = modelData.raw || ""; rawEditorLoader.item.open() } }
-            Button { text: "Export"; onClicked: root.rpc.call("profile.export", { profileId: modelData.id }, function(result, error) { if (!error) exportText.text=result.payload || ""; exportDialog.open() }) }
-            Button { text: "QR / share"; onClicked: root.rpc.call("profile.qr", { profileId: modelData.id }, function(result, error) { if (!error) qrText.text=result.payload || ""; qrDialog.open() }) }
-            Button { text: "QR image"; onClicked: root.rpc.call("profile.qr.image", { profileId: modelData.id }, function(result, error) { if (error) root.message = error.message; else { qrImageLoader.item.contentItem.source = result.imagePath; qrImageLoader.item.open() } }) }
-            Button { text: "Delete"; Accessible.name: "Delete " + modelData.name; onClicked: { details.close(); pendingDeleteId = modelData.id; pendingDeleteName = modelData.name; confirmDelete.open() } }
-          }
+            TextArea {
+                id: historyText
+                width: 520
+                height: 260
+                readOnly: true
+                wrapMode: TextEdit.Wrap
+                selectByMouse: true
+            }
+            Button {
+                text: "Clear this profile’s history"
+                Accessible.name: "Clear history for " + history.profileName
+                onClicked: clearProfileHistoryConfirm.open()
+            }
         }
-        Dialog { id: edit; title: "Edit profile"; modal: true; standardButtons: Dialog.Save | Dialog.Cancel; contentItem: Column { spacing: 8; Text { text: "Protocol: " + modelData.protocol + " • use Protocol fields for supported options"; color: Color.accent; wrapMode: Text.WordWrap } TextField { id: nameEdit; placeholderText: "Profile name" } TextField { id: groupEdit; placeholderText: "Group (optional)" } TextField { id: serverEdit; placeholderText: "Server" } TextField { id: portEdit; placeholderText: "Port"; inputMethodHints: Qt.ImhDigitsOnly } TextArea { id: fieldsEdit; width: 460; height: 180; placeholderText: "Protocol fields (JSON)"; selectByMouse: true } } onAccepted: { var fields; try { fields=JSON.parse(fieldsEdit.text || "{}"); } catch(e) { root.message="Invalid protocol fields JSON"; edit.open(); return } root.rpc.call("profile.update", { profile: { id:modelData.id, name:nameEdit.text, protocol:modelData.protocol, core:modelData.core, enabled:modelData.enabled, favorite:modelData.favorite, group:groupEdit.text.trim(), server:serverEdit.text, port:Number(portEdit.text), sourceId:modelData.sourceId, fields:fields, raw:modelData.raw } }, function(result,error) { if (error) root.message=error.message; else showSuccess("Profile saved"); if (!error) root.refresh() }) }
-        Dialog { id: exportDialog; title: "Export payload"; modal: true; standardButtons: Dialog.Close; contentItem: TextArea { id: exportText; readOnly: true; wrapMode: TextEdit.Wrap; selectByMouse: true } }
-        Dialog { id: qrDialog; title: "QR payload"; modal: true; standardButtons: Dialog.Close; contentItem: Column { spacing: 8; Text { text: "Use this payload with a QR scanner or copy it to another device."; color: Color.foreground; wrapMode: Text.WordWrap } TextArea { id: qrText; width: 400; height: 180; readOnly: true; wrapMode: TextEdit.Wrap; selectByMouse: true } } }
-      }
     }
-    Button { text: "Add profile"; onClicked: addDialog.open() }
-    Button { text: "Subscriptions"; Accessible.name: "Manage subscriptions"; onClicked: { subscriptionManager.open() } }
-    Button { text: "Subscription status"; onClicked: { root.rpc.call("subscription.list", {}, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); if (!error) root.refreshSubscriptions(); subscriptionStatusLoader.item.open() }) } }
-    Button { text: "Refresh history"; onClicked: { root.refreshSubscriptions(); subscriptionHistoryView.open() } }
-    Button { text: root.subscriptionRefreshing ? "Refreshing subscriptions…" : "Refresh all subscriptions"; Accessible.name: "Refresh all subscriptions"; enabled: !root.subscriptionRefreshing; onClicked: refreshAllSubscriptions() }
-    Button { text: "Bulk TCP test"; Accessible.name: "Test TCP connectivity for all profiles"; onClicked: { root.rpc.call("test.bulk", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); subscriptionStatusLoader.item.open() }) } }
-    Button { text: "Clear all test history"; onClicked: clearHistoryConfirm.open() }
-    Button { text: "Test all proxy connections"; onClicked: { root.rpc.call("test.bulk.proxy", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { if (!error) root.bulkResults = result.results || []; subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : root.formatBulkResults(root.bulkResults); subscriptionStatusLoader.item.open() }) } }
-    Button { text: "Use best working profile"; enabled: root.bulkResults.some(function(r) { return r.ok }); onClicked: { var candidates = root.bulkResults.filter(function(r) { return r.ok }).sort(function(a, b) { return Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999) }); if (candidates.length) { root.selectedId = candidates[0].profileId; root.message = "Selected " + candidates[0].name + " (" + candidates[0].latencyMs + " ms)" } } }
-    Button { text: "Sort results: " + root.bulkSortMode; enabled: root.bulkResults.length > 0; onClicked: { root.cycleBulkSort(); subscriptionStatusLoader.item.contentItem.children[0].text = root.formatBulkResults(root.bulkResults) } }
-    Text { visible: root.bulkResults.length > 0; text: root.bulkHealthSummary(); color: root.bulkResults.every(function(r) { return r.ok }) ? "#74d99f" : "#efb06a" }
-    Button { text: "Connect selected profile"; enabled: root.selectedId !== "" && !root.connected; onClicked: { root.rpc.call("profile.connect", { profileId: root.selectedId }, function(result, error) { root.message = error ? error.message : "Connection established"; if (!error) root.refreshStatus(); subscriptionStatusLoader.item.close() }) } }
-    Button { text: "Cancel active test/connection"; visible: root.diagnosticRunning || root.connecting; enabled: root.diagnosticRunning || root.connecting; onClicked: { root.rpc.call("profile.connect.cancel", {}, function(result, error) { root.diagnosticRunning = false; root.connecting = false; root.message = error ? error.message : "Operation cancelled"; root.refreshStatus() }) } }
-    Button { text: "Cancel bulk test"; onClicked: root.rpc.call("test.bulk.cancel", {}, function(result, error) { root.message = error ? error.message : "Bulk test cancellation requested" }) }
-    Text { text: root.subscriptionSummary; visible: text !== ""; color: root.subscriptionSummary.indexOf("errors") >= 0 ? "#ef6a6a" : Qt.darker(Color.foreground, 1.5) }
-    Button { text: "Settings"; Accessible.name: "Open Rayarchy settings"; onClicked: settings.open() }
-    Button { text: "Logs"; onClicked: { if (root.rpc) root.rpc.call("system.diagnostics", {}, function(diag,diagError) { root.rpc.call("system.logs", {limit:200}, function(result,error) { if (error || diagError) logsText.text=(error || diagError).message; else logsText.text="Core PID: " + (diag.status.corePid || "none") + "\nCore uptime: " + (diag.status.coreUptimeSeconds === null ? "stopped" : (diag.status.coreUptimeSeconds || 0) + "s") + "\n\n" + (result.lines || []).join("\n"); logs.open() }) }) } }
-    Button { text: "Diagnostics"; Accessible.name: "Open daemon diagnostics"; onClicked: { if (root.rpc) root.rpc.call("system.diagnostics", {}, function(result,error) { diagnosticsText.text = error ? error.message : JSON.stringify(result, null, 2); diagnostics.open() }) } }
-    Button { text: "Routing"; Accessible.name: "Manage routing rules"; onClicked: routing.open() }
-    Button { text: "Backup"; onClicked: { if (root.rpc) root.rpc.call("backup.export", {}, function(result,error) { backupText.text=error ? error.message : JSON.stringify(result); backup.open() }) } }
-  }
-  property string pendingDeleteId: ""
-  property string pendingDeleteName: ""
-  Dialog { id: confirmDelete; modal: true; title: "Delete profile?"; standardButtons: Dialog.Yes | Dialog.No; contentItem: Text { text: "Delete “" + root.pendingDeleteName + "”? This cannot be undone."; color: Color.foreground; wrapMode: Text.WordWrap } onAccepted: root.rpc.call("profile.delete", { profileId: root.pendingDeleteId }, function(result,error) { root.message = error ? error.message : "Profile deleted"; if (!error) { root.selectedId = ""; root.refresh() } }) }
-  Dialog { id: history; modal: true; title: "Test history"; standardButtons: Dialog.Close; property string profileId: ""; property string profileName: ""; contentItem: Column { spacing: 8; TextArea { id: historyText; width: 520; height: 260; readOnly: true; wrapMode: TextEdit.Wrap; selectByMouse: true } Button { text: "Clear this profile’s history"; Accessible.name: "Clear history for " + history.profileName; onClicked: clearProfileHistoryConfirm.open() } } }
-  Dialog { id: clearProfileHistoryConfirm; modal: true; title: "Clear profile history?"; standardButtons: Dialog.Yes | Dialog.No; contentItem: Text { text: "Remove all saved diagnostics for “" + history.profileName + "”?"; color: Color.foreground; wrapMode: Text.WordWrap } onAccepted: root.rpc.call("test.history.clear", { profileId: history.profileId }, function(result,error) { if (error) root.message=error.message; else { historyText.text = "History cleared."; showSuccess("Profile history cleared"); clearProfileHistoryConfirm.close() } }) }
-  Dialog { id: clearHistoryConfirm; modal: true; title: "Clear test history?"; standardButtons: Dialog.Yes | Dialog.No; contentItem: Text { text: "Remove all saved connectivity and health test results?"; color: Color.foreground; wrapMode: Text.WordWrap } onAccepted: root.rpc.call("test.history.clear", {}, function(result,error) { if (error) root.message=error.message; else { root.bulkResults=[]; showSuccess("Test history cleared"); root.refresh() } }) }
-  Dialog {
-    id: addDialog
-    modal: true
-    title: "Add profile"
-    standardButtons: Dialog.Ok | Dialog.Cancel
-    property string previewText: ""
-    contentItem: Column {
-      spacing: 8
-      TextArea { id: input; width: 520; height: 180; placeholderText: "Paste a vless://, vmess://, trojan://, ss://, JSON, or YAML configuration"; wrapMode: TextEdit.Wrap; selectByMouse: true }
-      Button { text: "Preview parsed profiles"; onClicked: if (root.rpc) root.rpc.call("import.preview", { input: input.text }, function(result, error) { addDialog.previewText = error ? error.message : JSON.stringify(result, null, 2) }) }
-      TextArea { width: 520; height: 150; text: addDialog.previewText; readOnly: true; wrapMode: TextEdit.Wrap; selectByMouse: true; placeholderText: "Preview results appear here" }
+    Dialog {
+        id: clearProfileHistoryConfirm
+        modal: true
+        title: "Clear profile history?"
+        standardButtons: Dialog.Yes | Dialog.No
+        contentItem: Text {
+            text: "Remove all saved diagnostics for “" + history.profileName + "”?"
+            color: Color.foreground
+            wrapMode: Text.WordWrap
+        }
+        onAccepted: root.rpc.call("test.history.clear", {
+            profileId: history.profileId
+        }, function (result, error) {
+            if (error)
+                root.message = error.message;
+            else {
+                historyText.text = "History cleared.";
+                showSuccess("Profile history cleared");
+                clearProfileHistoryConfirm.close();
+            }
+        })
     }
-    onAccepted: if (root.rpc) root.rpc.call("import.commit", { input: input.text }, function(result, error) { if (error) { root.message = error.message || "Import failed"; addDialog.open() } else { input.text = ""; addDialog.previewText = ""; showSuccess("Profiles imported"); root.refresh() } })
-  }
-  Dialog { id: subscriptions; modal: true; title: "Subscriptions"; standardButtons: Dialog.Close; property var items: []; onOpened: if (root.rpc) root.rpc.call("subscription.list", {}, function(result,error) { if (!error) subscriptions.items=result || [] }); contentItem: Column { spacing: 8; Text { text: "Configured sources"; color: Color.foreground } ListView { width: 430; height: Math.min(260, Math.max(70, subscriptions.items.length * 52)); model: subscriptions.items; delegate: Row { spacing: 6; width: parent.width; Text { width: 140; text: modelData.name; color: Color.foreground; elide: Text.ElideRight } Button { text: modelData.enabled ? "On" : "Off"; onClicked: root.rpc.call("subscription.update", { subscription:{id:modelData.id,name:modelData.name,url:modelData.url,enabled:!modelData.enabled,autoUpdate:modelData.autoUpdate || "daily",lastError:modelData.lastError} }, function(result,error) { if (error) root.message=error.message; else { showSuccess("Subscription updated"); subscriptions.open() } }) } Button { text: "Edit"; onClicked: { subEditId.text=modelData.id; subEditName.text=modelData.name; subEditUrl.text=modelData.url; subEditAuto.currentIndex=["off","startup","daily","every6_hours"].indexOf(modelData.autoUpdate || "daily"); subEdit.open() } } Button { text: "Refresh"; onClicked: root.rpc.call("subscription.refresh", { subscriptionId:modelData.id }, function(result,error) { if (error) root.message=error.message; else showSuccess("Updated " + (result.updated || 0) + " profiles"); root.refresh() }) } Button { text: "Delete"; onClicked: root.rpc.call("subscription.delete", { subscriptionId:modelData.id }, function(result,error) { if (error) root.message=error.message; else { subscriptions.items = subscriptions.items.filter(function(s) { return s.id !== modelData.id }); showSuccess("Subscription deleted"); root.refresh() } }) } } } TextField { id: subName; placeholderText: "New subscription name" } TextField { id: subUrl; placeholderText: "https://example/subscribe" } Button { text: "Add subscription"; onClicked: root.rpc.call("subscription.create", { subscription:{name:subName.text, url:subUrl.text, enabled:true, autoUpdate:"daily"} }, function(result,error) { if (error) root.message=error.message; else { subscriptions.items = subscriptions.items.concat([{id:result.subscriptionId,name:subName.text,url:subUrl.text,enabled:true}]); subName.text=""; subUrl.text=""; showSuccess("Subscription added") } }) } }
-  }
-  Dialog { id: subscriptionHistory; modal: true; title: "Subscription refresh history"; standardButtons: Dialog.Close; contentItem: ListView { width: 560; height: Math.min(360, Math.max(80, subscriptions.items.length * 54)); model: subscriptions.items; delegate: Column { width: parent.width; spacing: 2; Text { text: modelData.name; color: Color.foreground; font.bold: true } Text { text: modelData.lastRefreshAt ? "Last attempt: " + new Date(modelData.lastRefreshAt * 1000).toLocaleString() : "Never refreshed"; color: Qt.darker(Color.foreground, 1.4) } Text { visible: !!modelData.lastError; text: "Error: " + modelData.lastError; color: "#ef6a6a" } } } }
-  SubscriptionHistoryView { id: subscriptionHistoryView; subscriptions: subscriptionManager.items }
-  SubscriptionManager { id: subscriptionManager; rpc: root.rpc }
-  Component.onCompleted: subscriptions.visible = false
-  Dialog { id: subEdit; modal: true; title: "Edit subscription"; standardButtons: Dialog.Save | Dialog.Cancel; contentItem: Column { spacing: 8; TextField { id: subEditId; visible: false } TextField { id: subEditName; placeholderText: "Name" } TextField { id: subEditUrl; placeholderText: "https://example/subscribe" } ComboBox { id: subEditAuto; model: ["off", "startup", "daily", "every6_hours"] } } onAccepted: root.rpc.call("subscription.update", { subscription:{id:subEditId.text,name:subEditName.text,url:subEditUrl.text,enabled:true,autoUpdate:subEditAuto.currentText} }, function(result,error) { if (error) root.message = error.message; else showSuccess("Subscription saved"); if (!error) { subEdit.close(); subscriptions.open() } }) }
-  Dialog {
-    id: settings
-    modal: true
-    title: "Rayarchy settings"
-    standardButtons: Dialog.Save | Dialog.Cancel
-    property var values: ({})
-    onOpened: if (root.rpc) root.rpc.call("settings.get", {}, function(result, error) {
-      if (!error) {
-        settings.values = result || {}
-        mode.currentIndex = Math.max(0, ["system_proxy", "local"].indexOf(settings.values.connectionMode))
-        core.currentIndex = ["auto", "sing-box", "xray"].indexOf(settings.values.preferredCore)
-        port.text = String(settings.values.localPort || 1080)
-        retention.text = String(settings.values.healthRetentionHours || 24)
-        dns.checked = !!settings.values.dnsLeakProtection
-        lan.checked = !!settings.values.lanBypass
-      }
-    })
-    contentItem: Column {
-      spacing: 8
-      Text { text: "Connection modes available in this build"; color: Color.foreground }
-      ComboBox { id: mode; model: ["system_proxy", "local"] }
-      Text { text: "TUN and transparent routing require a future privileged helper."; color: "#efb06a"; wrapMode: Text.WordWrap }
-      ComboBox { id: core; model: ["auto", "sing-box", "xray"] }
-      TextField { id: port; placeholderText: "Local proxy port"; inputMethodHints: Qt.ImhDigitsOnly }
-      TextField { id: retention; placeholderText: "Health result retention (hours)"; inputMethodHints: Qt.ImhDigitsOnly }
-      CheckBox { id: dns; text: "DNS leak protection" }
-      CheckBox { id: lan; text: "Bypass LAN" }
+    Dialog {
+        id: clearHistoryConfirm
+        modal: true
+        title: "Clear test history?"
+        standardButtons: Dialog.Yes | Dialog.No
+        contentItem: Text {
+            text: "Remove all saved connectivity and health test results?"
+            color: Color.foreground
+            wrapMode: Text.WordWrap
+        }
+        onAccepted: root.rpc.call("test.history.clear", {}, function (result, error) {
+            if (error)
+                root.message = error.message;
+            else {
+                root.bulkResults = [];
+                showSuccess("Test history cleared");
+                root.refresh();
+            }
+        })
     }
-    onAccepted: { var localPort = Number(port.text); var hours = Number(retention.text); if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535) { root.message = "Local proxy port must be between 1 and 65535"; settings.open(); return } if (!Number.isInteger(hours) || hours < 1 || hours > 720) { root.message = "Health retention must be between 1 and 720 hours"; settings.open(); return } if (root.rpc) root.rpc.call("settings.update", { settings: { connectionMode: mode.currentText, preferredCore: core.currentText, localPort: localPort, healthRetentionHours: hours, killSwitch: false, dnsLeakProtection: dns.checked, lanBypass: lan.checked } }, function(result, error) {
-      root.message = error ? error.message : "Settings saved"
-      if (!error) settingsMessageTimer.restart()
-      if (error) settings.open()
-    }) }
-  }
-  Dialog { id: logs; modal: true; title: "Rayarchy logs"; standardButtons: Dialog.Close; contentItem: Column { spacing: 8; TextArea { id: logsText; width: 520; height: 270; readOnly: true; wrapMode: TextEdit.NoWrap; selectByMouse: true } Button { text: "Copy logs"; onClicked: { Quickshell.execDetached(["wl-copy", logsText.text]); root.message = "Logs copied to clipboard" } } } }
-  Dialog { id: diagnostics; modal: true; title: "Rayarchy diagnostics"; standardButtons: Dialog.Close; contentItem: Column { spacing: 8; TextArea { id: diagnosticsText; width: 520; height: 270; readOnly: true; wrapMode: TextEdit.Wrap; selectByMouse: true } Button { text: "Copy diagnostics"; onClicked: { Quickshell.execDetached(["wl-copy", diagnosticsText.text]); root.message = "Diagnostics copied to clipboard" } } } }
-  Dialog { id: routing; modal: true; title: "Routing rules"; standardButtons: Dialog.Close; property var rules: []; onOpened: if (root.rpc) root.rpc.call("routing.list", {}, function(result,error) { if (error) root.message=error.message; else routing.rules=result || [] }); contentItem: Column { spacing: 8; ListView { width: 460; height: Math.min(240, Math.max(60, routing.rules.length * 46)); model:routing.rules; delegate: Row { spacing:6; Text { width:260; text:modelData.name + " • " + modelData.value; color:Color.foreground; elide:Text.ElideRight } Button { text:modelData.action; enabled:false } Button { text:"Delete"; onClicked: root.rpc.call("routing.delete", {ruleId:modelData.id}, function(result,error) { if (error) root.message=error.message; else { routing.rules=routing.rules.filter(function(r){return r.id!==modelData.id}); showSuccess("Routing rule deleted") } }) } } } TextField { id:ruleName; placeholderText:"Rule name" } TextField { id:ruleValue; placeholderText:"Domain or CIDR" } ComboBox { id:ruleAction; model:["proxy","direct","block"] } Button { text:"Add domain/CIDR rule"; onClicked: root.rpc.call("routing.create", {rule:{name:ruleName.text, matchType:ruleValue.text.indexOf("/")>=0 ? "cidr" : "domain_suffix", value:ruleValue.text, action:ruleAction.currentText, enabled:true}}, function(result,error) { if (error) root.message=error.message; else { routing.rules=routing.rules.concat([{id:result.ruleId,name:ruleName.text,value:ruleValue.text,action:ruleAction.currentText}]); ruleName.text=""; ruleValue.text=""; showSuccess("Routing rule added") } }) } } }
-  Dialog { id: backup; modal: true; title: "Backup / restore"; standardButtons: Dialog.Close; contentItem: Column { spacing:8; TextArea { id:backupText; width:520; height:220; wrapMode:TextEdit.NoWrap; selectByMouse:true } Button { text:"Restore this JSON"; onClicked: { var parsed; try { parsed=JSON.parse(backupText.text) } catch(e) { root.message="Invalid backup JSON"; return } root.rpc.call("backup.import", parsed, function(result,error) { if (error) root.message=error.message; else { showSuccess("Backup restored"); backup.close(); root.refresh() } }) } } } }
+    Dialog {
+        id: addDialog
+        modal: true
+        title: "Add profile"
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        property string previewText: ""
+        contentItem: Column {
+            spacing: 8
+            TextArea {
+                id: input
+                width: 520
+                height: 180
+                placeholderText: "Paste a vless://, vmess://, trojan://, ss://, JSON, or YAML configuration"
+                wrapMode: TextEdit.Wrap
+                selectByMouse: true
+            }
+            Button {
+                text: "Preview parsed profiles"
+                onClicked: if (root.rpc)
+                    root.rpc.call("import.preview", {
+                        input: input.text
+                    }, function (result, error) {
+                        addDialog.previewText = error ? error.message : JSON.stringify(result, null, 2);
+                    })
+            }
+            TextArea {
+                width: 520
+                height: 150
+                text: addDialog.previewText
+                readOnly: true
+                wrapMode: TextEdit.Wrap
+                selectByMouse: true
+                placeholderText: "Preview results appear here"
+            }
+        }
+        onAccepted: if (root.rpc)
+            root.rpc.call("import.commit", {
+                input: input.text
+            }, function (result, error) {
+                if (error) {
+                    root.message = error.message || "Import failed";
+                    addDialog.open();
+                } else {
+                    input.text = "";
+                    addDialog.previewText = "";
+                    showSuccess("Profiles imported");
+                    root.refresh();
+                }
+            })
+    }
+    Dialog {
+        id: subscriptions
+        visible: false
+        modal: true
+        title: "Subscriptions"
+        standardButtons: Dialog.Close
+        property var items: []
+        onOpened: if (root.rpc)
+            root.rpc.call("subscription.list", {}, function (result, error) {
+                if (!error)
+                    subscriptions.items = result || [];
+            })
+        contentItem: Column {
+            spacing: 8
+            Text {
+                text: "Configured sources"
+                color: Color.foreground
+            }
+            ListView {
+                width: 430
+                height: Math.min(260, Math.max(70, subscriptions.items.length * 52))
+                model: subscriptions.items
+                delegate: Row {
+                    spacing: 6
+                    width: parent.width
+                    Text {
+                        width: 140
+                        text: modelData.name
+                        color: Color.foreground
+                        elide: Text.ElideRight
+                    }
+                    Button {
+                        text: modelData.enabled ? "On" : "Off"
+                        onClicked: root.rpc.call("subscription.update", {
+                            subscription: {
+                                id: modelData.id,
+                                name: modelData.name,
+                                url: modelData.url,
+                                enabled: !modelData.enabled,
+                                autoUpdate: modelData.autoUpdate || "daily",
+                                lastError: modelData.lastError
+                            }
+                        }, function (result, error) {
+                            if (error)
+                                root.message = error.message;
+                            else {
+                                showSuccess("Subscription updated");
+                                subscriptions.open();
+                            }
+                        })
+                    }
+                    Button {
+                        text: "Edit"
+                        onClicked: {
+                            subEditId.text = modelData.id;
+                            subEditName.text = modelData.name;
+                            subEditUrl.text = modelData.url;
+                            subEditAuto.currentIndex = ["off", "startup", "daily", "every6_hours"].indexOf(modelData.autoUpdate || "daily");
+                            subEdit.open();
+                        }
+                    }
+                    Button {
+                        text: "Refresh"
+                        onClicked: root.rpc.call("subscription.refresh", {
+                            subscriptionId: modelData.id
+                        }, function (result, error) {
+                            if (error)
+                                root.message = error.message;
+                            else
+                                showSuccess("Updated " + (result.updated || 0) + " profiles");
+                            root.refresh();
+                        })
+                    }
+                    Button {
+                        text: "Delete"
+                        onClicked: root.rpc.call("subscription.delete", {
+                            subscriptionId: modelData.id
+                        }, function (result, error) {
+                            if (error)
+                                root.message = error.message;
+                            else {
+                                subscriptions.items = subscriptions.items.filter(function (s) {
+                                    return s.id !== modelData.id;
+                                });
+                                showSuccess("Subscription deleted");
+                                root.refresh();
+                            }
+                        })
+                    }
+                }
+            }
+            TextField {
+                id: subName
+                placeholderText: "New subscription name"
+            }
+            TextField {
+                id: subUrl
+                placeholderText: "https://example/subscribe"
+            }
+            Button {
+                text: "Add subscription"
+                onClicked: root.rpc.call("subscription.create", {
+                    subscription: {
+                        name: subName.text,
+                        url: subUrl.text,
+                        enabled: true,
+                        autoUpdate: "daily"
+                    }
+                }, function (result, error) {
+                    if (error)
+                        root.message = error.message;
+                    else {
+                        subscriptions.items = subscriptions.items.concat([
+                            {
+                                id: result.subscriptionId,
+                                name: subName.text,
+                                url: subUrl.text,
+                                enabled: true
+                            }
+                        ]);
+                        subName.text = "";
+                        subUrl.text = "";
+                        showSuccess("Subscription added");
+                    }
+                })
+            }
+        }
+    }
+    Dialog {
+        id: subscriptionHistory
+        modal: true
+        title: "Subscription refresh history"
+        standardButtons: Dialog.Close
+        contentItem: ListView {
+            width: 560
+            height: Math.min(360, Math.max(80, subscriptions.items.length * 54))
+            model: subscriptions.items
+            delegate: Column {
+                width: parent.width
+                spacing: 2
+                Text {
+                    text: modelData.name
+                    color: Color.foreground
+                    font.bold: true
+                }
+                Text {
+                    text: modelData.lastRefreshAt ? "Last attempt: " + new Date(modelData.lastRefreshAt * 1000).toLocaleString() : "Never refreshed"
+                    color: Qt.darker(Color.foreground, 1.4)
+                }
+                Text {
+                    visible: !!modelData.lastError
+                    text: "Error: " + modelData.lastError
+                    color: "#ef6a6a"
+                }
+            }
+        }
+    }
+    SubscriptionHistoryView {
+        id: subscriptionHistoryView
+        subscriptions: subscriptionManager.items
+    }
+    SubscriptionManager {
+        id: subscriptionManager
+        rpc: root.rpc
+    }
+    Dialog {
+        id: subEdit
+        modal: true
+        title: "Edit subscription"
+        standardButtons: Dialog.Save | Dialog.Cancel
+        contentItem: Column {
+            spacing: 8
+            TextField {
+                id: subEditId
+                visible: false
+            }
+            TextField {
+                id: subEditName
+                placeholderText: "Name"
+            }
+            TextField {
+                id: subEditUrl
+                placeholderText: "https://example/subscribe"
+            }
+            ComboBox {
+                id: subEditAuto
+                model: ["off", "startup", "daily", "every6_hours"]
+            }
+        }
+        onAccepted: root.rpc.call("subscription.update", {
+            subscription: {
+                id: subEditId.text,
+                name: subEditName.text,
+                url: subEditUrl.text,
+                enabled: true,
+                autoUpdate: subEditAuto.currentText
+            }
+        }, function (result, error) {
+            if (error)
+                root.message = error.message;
+            else
+                showSuccess("Subscription saved");
+            if (!error) {
+                subEdit.close();
+                subscriptions.open();
+            }
+        })
+    }
+    Dialog {
+        id: settings
+        modal: true
+        title: "Rayarchy settings"
+        standardButtons: Dialog.Save | Dialog.Cancel
+        property var values: ({})
+        onOpened: if (root.rpc)
+            root.rpc.call("settings.get", {}, function (result, error) {
+                if (!error) {
+                    settings.values = result || {};
+                    mode.currentIndex = Math.max(0, ["system_proxy", "local"].indexOf(settings.values.connectionMode));
+                    core.currentIndex = ["auto", "sing-box", "xray"].indexOf(settings.values.preferredCore);
+                    port.text = String(settings.values.localPort || 1080);
+                    retention.text = String(settings.values.healthRetentionHours || 24);
+                    dns.checked = !!settings.values.dnsLeakProtection;
+                    lan.checked = !!settings.values.lanBypass;
+                }
+            })
+        contentItem: Column {
+            spacing: 8
+            Text {
+                text: "Connection modes available in this build"
+                color: Color.foreground
+            }
+            ComboBox {
+                id: mode
+                model: ["system_proxy", "local"]
+            }
+            Text {
+                text: "TUN and transparent routing require a future privileged helper."
+                color: "#efb06a"
+                wrapMode: Text.WordWrap
+            }
+            ComboBox {
+                id: core
+                model: ["auto", "sing-box", "xray"]
+            }
+            TextField {
+                id: port
+                placeholderText: "Local proxy port"
+                inputMethodHints: Qt.ImhDigitsOnly
+            }
+            TextField {
+                id: retention
+                placeholderText: "Health result retention (hours)"
+                inputMethodHints: Qt.ImhDigitsOnly
+            }
+            CheckBox {
+                id: dns
+                text: "DNS leak protection"
+            }
+            CheckBox {
+                id: lan
+                text: "Bypass LAN"
+            }
+        }
+        onAccepted: {
+            var localPort = Number(port.text);
+            var hours = Number(retention.text);
+            if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535) {
+                root.message = "Local proxy port must be between 1 and 65535";
+                settings.open();
+                return;
+            }
+            if (!Number.isInteger(hours) || hours < 1 || hours > 720) {
+                root.message = "Health retention must be between 1 and 720 hours";
+                settings.open();
+                return;
+            }
+            if (root.rpc)
+                root.rpc.call("settings.update", {
+                    settings: {
+                        connectionMode: mode.currentText,
+                        preferredCore: core.currentText,
+                        localPort: localPort,
+                        healthRetentionHours: hours,
+                        killSwitch: false,
+                        dnsLeakProtection: dns.checked,
+                        lanBypass: lan.checked
+                    }
+                }, function (result, error) {
+                    root.message = error ? error.message : "Settings saved";
+                    if (!error)
+                        settingsMessageTimer.restart();
+                    if (error)
+                        settings.open();
+                });
+        }
+    }
+    Dialog {
+        id: logs
+        modal: true
+        title: "Rayarchy logs"
+        standardButtons: Dialog.Close
+        contentItem: Column {
+            spacing: 8
+            TextArea {
+                id: logsText
+                width: 520
+                height: 270
+                readOnly: true
+                wrapMode: TextEdit.NoWrap
+                selectByMouse: true
+            }
+            Button {
+                text: "Copy logs"
+                onClicked: {
+                    Quickshell.execDetached(["wl-copy", logsText.text]);
+                    root.message = "Logs copied to clipboard";
+                }
+            }
+        }
+    }
+    Dialog {
+        id: diagnostics
+        modal: true
+        title: "Rayarchy diagnostics"
+        standardButtons: Dialog.Close
+        contentItem: Column {
+            spacing: 8
+            TextArea {
+                id: diagnosticsText
+                width: 520
+                height: 270
+                readOnly: true
+                wrapMode: TextEdit.Wrap
+                selectByMouse: true
+            }
+            Button {
+                text: "Copy diagnostics"
+                onClicked: {
+                    Quickshell.execDetached(["wl-copy", diagnosticsText.text]);
+                    root.message = "Diagnostics copied to clipboard";
+                }
+            }
+        }
+    }
+    Dialog {
+        id: routing
+        modal: true
+        title: "Routing rules"
+        standardButtons: Dialog.Close
+        property var rules: []
+        onOpened: if (root.rpc)
+            root.rpc.call("routing.list", {}, function (result, error) {
+                if (error)
+                    root.message = error.message;
+                else
+                    routing.rules = result || [];
+            })
+        contentItem: Column {
+            spacing: 8
+            ListView {
+                width: 460
+                height: Math.min(240, Math.max(60, routing.rules.length * 46))
+                model: routing.rules
+                delegate: Row {
+                    spacing: 6
+                    Text {
+                        width: 260
+                        text: modelData.name + " • " + modelData.value
+                        color: Color.foreground
+                        elide: Text.ElideRight
+                    }
+                    Button {
+                        text: modelData.action
+                        enabled: false
+                    }
+                    Button {
+                        text: "Delete"
+                        onClicked: root.rpc.call("routing.delete", {
+                            ruleId: modelData.id
+                        }, function (result, error) {
+                            if (error)
+                                root.message = error.message;
+                            else {
+                                routing.rules = routing.rules.filter(function (r) {
+                                    return r.id !== modelData.id;
+                                });
+                                showSuccess("Routing rule deleted");
+                            }
+                        })
+                    }
+                }
+            }
+            TextField {
+                id: ruleName
+                placeholderText: "Rule name"
+            }
+            TextField {
+                id: ruleValue
+                placeholderText: "Domain or CIDR"
+            }
+            ComboBox {
+                id: ruleAction
+                model: ["proxy", "direct", "block"]
+            }
+            Button {
+                text: "Add domain/CIDR rule"
+                onClicked: root.rpc.call("routing.create", {
+                    rule: {
+                        name: ruleName.text,
+                        matchType: ruleValue.text.indexOf("/") >= 0 ? "cidr" : "domain_suffix",
+                        value: ruleValue.text,
+                        action: ruleAction.currentText,
+                        enabled: true
+                    }
+                }, function (result, error) {
+                    if (error)
+                        root.message = error.message;
+                    else {
+                        routing.rules = routing.rules.concat([
+                            {
+                                id: result.ruleId,
+                                name: ruleName.text,
+                                value: ruleValue.text,
+                                action: ruleAction.currentText
+                            }
+                        ]);
+                        ruleName.text = "";
+                        ruleValue.text = "";
+                        showSuccess("Routing rule added");
+                    }
+                })
+            }
+        }
+    }
+    Dialog {
+        id: backup
+        modal: true
+        title: "Backup / restore"
+        standardButtons: Dialog.Close
+        contentItem: Column {
+            spacing: 8
+            TextArea {
+                id: backupText
+                width: 520
+                height: 220
+                wrapMode: TextEdit.NoWrap
+                selectByMouse: true
+            }
+            Button {
+                text: "Restore this JSON"
+                onClicked: {
+                    var parsed;
+                    try {
+                        parsed = JSON.parse(backupText.text);
+                    } catch (e) {
+                        root.message = "Invalid backup JSON";
+                        return;
+                    }
+                    root.rpc.call("backup.import", parsed, function (result, error) {
+                        if (error)
+                            root.message = error.message;
+                        else {
+                            showSuccess("Backup restored");
+                            backup.close();
+                            root.refresh();
+                        }
+                    });
+                }
+            }
+        }
+    }
 }
