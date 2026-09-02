@@ -1098,7 +1098,15 @@ impl Daemon {
                 let Some(existing) = db.subscriptions.iter_mut().find(|s| s.id == sub.id) else {
                     return serde_json::json!({"error":"subscription not found"});
                 };
-                *existing = sub;
+                // Refresh metadata is daemon-owned state; a UI edit must not erase it.
+                let mut updated = sub;
+                if updated.last_error.is_none() {
+                    updated.last_error = existing.last_error.clone();
+                }
+                if updated.last_refresh_at.is_none() {
+                    updated.last_refresh_at = existing.last_refresh_at;
+                }
+                *existing = updated;
                 drop(db);
                 let _ = self.save().await;
                 serde_json::json!({"ok":true})
@@ -1458,6 +1466,43 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn subscription_update_preserves_refresh_metadata() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let created = daemon
+            .dispatch(
+                "subscription.create",
+                serde_json::json!({"subscription":{"name":"source","url":"https://example.com/list"}}),
+            )
+            .await;
+        let id = created["subscriptionId"].clone();
+        {
+            let mut db = daemon.db.lock().await;
+            let subscription = db
+                .subscriptions
+                .iter_mut()
+                .find(|s| Some(s.id.to_string()) == id.as_str().map(str::to_owned))
+                .unwrap();
+            subscription.last_error = Some("temporary failure".into());
+            subscription.last_refresh_at = Some(1234);
+        }
+        daemon
+            .dispatch(
+                "subscription.update",
+                serde_json::json!({"subscription":{"id":id,"name":"renamed","url":"https://example.com/list","enabled":true,"autoUpdate":"daily"}}),
+            )
+            .await;
+        let listed = daemon
+            .dispatch("subscription.list", serde_json::json!({}))
+            .await;
+        assert_eq!(listed[0]["name"], "renamed");
+        assert_eq!(listed[0]["lastError"], "temporary failure");
+        assert_eq!(listed[0]["lastRefreshAt"], 1234);
         let _ = std::fs::remove_file(path);
     }
 
