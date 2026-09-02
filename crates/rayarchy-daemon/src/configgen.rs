@@ -44,6 +44,9 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                 Protocol::Tuic => "tuic",
                 Protocol::Wireguard => "wireguard",
             };
+            if profile.protocol == Protocol::Wireguard {
+                return serde_json::json!({"log":{"level":"info"},"inbounds":[{"type":"mixed","tag":"rayarchy-in","listen":host,"listen_port":port}],"outbounds":[{"type":"wireguard","tag":"proxy","server":server,"server_port":server_port,"local_address":[field("local_address")],"private_key":field("private_key"),"peers":[{"public_key":field("public_key"),"allowed_ips":["0.0.0.0/0","::/0"]}]},{"type":"direct","tag":"direct"},{"type":"block","tag":"block"}],"route":{"rules":[]}});
+            }
             let mut value = serde_json::json!({"type":typ,"tag":"proxy","server":server,"server_port":server_port});
             if matches!(
                 profile.protocol,
@@ -188,5 +191,19 @@ mod tests {
         let outbound = &config["outbounds"][0];
         assert_eq!(outbound["tls"]["enabled"], true);
         assert_eq!(outbound["transport"]["type"], "ws");
+    }
+
+    #[test]
+    fn wireguard_uses_peer_based_sing_box_outbound() {
+        let mut profile = Profile {
+            protocol: Protocol::Wireguard,
+            server: Some("wg.example".into()),
+            port: Some(51820),
+            ..Default::default()
+        };
+        profile.fields = serde_json::json!({"private_key":"private","public_key":"public","local_address":"10.0.0.2/32"});
+        let config = build(&profile, Core::SingBox, "127.0.0.1", 1080);
+        assert_eq!(config["outbounds"][0]["type"], "wireguard");
+        assert_eq!(config["outbounds"][0]["peers"][0]["public_key"], "public");
     }
 }
