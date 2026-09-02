@@ -44,6 +44,10 @@ RAYARCHY_SUBSCRIPTION_URL='https://example.invalid/subscription' \
 
 The script keeps the downloaded payload temporary and reports only counts.
 
+Keyboard shortcuts in the panel include Ctrl/Cmd+F to focus profile search,
+Enter to connect the selected profile, and Escape to clear active filters.
+Profile rows expose descriptive accessibility labels and health status.
+
 After upgrading from an older Rayarchy build, rerun `setup.sh` from the cloned
 checkout. It rebuilds and installs both the daemon and CLI under
 `~/.local/bin`, then reloads the user service; this avoids accidentally
