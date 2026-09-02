@@ -174,6 +174,30 @@ Item {
         root.message = (result.ok ? "Speed" : "Speed test failed") + " • " + Number(result.megabitsPerSecond || 0).toFixed(1) + " Mbps";
     });
   }
+  function testAndConnect(profileId, host, port) {
+    if (!root.rpc || root.diagnosticRunning || root.connected)
+      return;
+    root.diagnosticRunning = true;
+    root.message = "Testing profile…";
+    root.rpc.call("test.tcp", { host: host, port: port }, function (result, error) {
+      if (error || !result.ok) {
+        root.diagnosticRunning = false;
+        root.message = error ? error.message : "TCP test failed; profile was not connected";
+        return;
+      }
+      root.message = "TCP passed; connecting…";
+      root.rpc.call("profile.connect", { profileId: profileId }, function (connectResult, connectError) {
+        root.diagnosticRunning = false;
+        if (connectError)
+          root.message = connectError.message || "Connection failed";
+        else {
+          root.message = "Connection established";
+          root.selectedId = profileId;
+          root.refreshStatus();
+        }
+      });
+    });
+  }
   Rectangle { anchors.fill: parent; color: Color.background }
   Loader { id: subscriptionStatusLoader; sourceComponent: Component { Dialog { modal: true; title: "Subscription status"; standardButtons: Dialog.Close; contentItem: TextArea { id: statusText; width: 520; height: 300; readOnly: true; wrapMode: TextEdit.NoWrap; selectByMouse: true } } } }
   Loader { id: rawEditorLoader; sourceComponent: Component { Dialog { modal: true; title: "Raw profile configuration"; standardButtons: Dialog.Save | Dialog.Cancel; property string profileId: ""; contentItem: TextArea { id: rawText; width: 560; height: 320; wrapMode: TextEdit.NoWrap; selectByMouse: true } onAccepted: root.rpc.call("profile.raw.update", { profileId: rawEditorLoader.item.profileId, raw: rawText.text }, function(result, error) { root.message = error ? error.message : "Raw configuration saved"; if (!error) rawEditorLoader.item.close(); root.refresh() }) } } }
@@ -216,6 +240,7 @@ Item {
             Text { text: modelData.protocol + "  " + (modelData.server || "") + ":" + (modelData.port || ""); color: Color.foreground }
             Text { text: modelData.lastTest ? (modelData.lastTest.ok ? "Verified " + modelData.lastTest.latencyMs + " ms • " + new Date(Number(modelData.lastTest.timestamp || 0) * 1000).toLocaleString() : "Last health check failed • " + (modelData.lastTest.error || "unknown error")) : "No recent verified health result"; color: modelData.lastTest && modelData.lastTest.ok ? "#74d99f" : "#efb06a"; wrapMode: Text.WordWrap }
             Button { text: root.diagnosticRunning ? "Testing…" : "Re-test this profile"; enabled: !root.diagnosticRunning; Accessible.name: "Re-test " + modelData.name; onClicked: root.runDiagnostic("test.tcp", { host:modelData.server || "", port:modelData.port || 443 }, "Profile test") }
+            Button { text: "Test then connect"; enabled: !root.diagnosticRunning && !root.connected; Accessible.name: "Test then connect " + modelData.name; onClicked: root.testAndConnect(modelData.id, modelData.server || "", modelData.port || 443) }
             Button { text: "Connect this profile"; enabled: !root.connected; onClicked: root.rpc.call("profile.connect", { profileId:modelData.id }, function(result,error) { if (error) root.message = error.message || "Connection failed"; else { root.message = "Connection established"; root.refreshStatus(); details.close() } }) }
             Button { text: root.diagnosticRunning ? "Testing…" : "TCP ping"; enabled: !root.diagnosticRunning; onClicked: root.runDiagnostic("test.tcp", { host:modelData.server || "", port:modelData.port || 443 }, "TCP test") }
             Button { text: "Validate core config"; onClicked: root.rpc.call("core.validate", { profileId:modelData.id }, function(result,error) { root.message = error ? error.message : (result.ok ? "Configuration accepted by " + result.core : "Configuration rejected") }) }
