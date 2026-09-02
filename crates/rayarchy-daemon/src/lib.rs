@@ -61,7 +61,14 @@ impl Daemon {
         if let Some(p) = self.path.parent() {
             std::fs::create_dir_all(p)?;
         }
-        std::fs::write(&self.path, bytes)?;
+        let tmp = self.path.with_extension("json.tmp");
+        std::fs::write(&tmp, bytes)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+        }
+        std::fs::rename(tmp, &self.path)?;
         Ok(())
     }
     async fn log(&self, line: impl Into<String>) {
@@ -78,7 +85,7 @@ impl Daemon {
             (
                 db.profiles
                     .iter()
-                    .find(|p| p.id == id)
+                    .find(|p| p.id == id && p.enabled)
                     .cloned()
                     .ok_or("profile not found")?,
                 db.settings.clone(),
@@ -350,6 +357,20 @@ impl Daemon {
                 } else {
                     return serde_json::json!({"error":"profile not found"});
                 }
+                drop(db);
+                let _ = self.save().await;
+                serde_json::json!({"ok":true})
+            }
+            "profile.enable" => {
+                let id = params["profileId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let enabled = params["enabled"].as_bool().unwrap_or(true);
+                let mut db = self.db.lock().await;
+                let Some(profile) = db.profiles.iter_mut().find(|p| Some(p.id) == id) else {
+                    return serde_json::json!({"error":"profile not found"});
+                };
+                profile.enabled = enabled;
                 drop(db);
                 let _ = self.save().await;
                 serde_json::json!({"ok":true})

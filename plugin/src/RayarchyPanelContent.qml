@@ -30,6 +30,7 @@ Item {
           Column { width: parent.width - 130; Text { text: modelData.name; color: Color.foreground; elide: Text.ElideRight } Text { text: (modelData.server || "") + (modelData.port ? ":" + modelData.port : ""); color: Qt.darker(Color.foreground, 1.5) } }
           Button { text: "★"; onClicked: root.rpc.call("profile.favorite", { profileId: modelData.id, favorite: !modelData.favorite }, function() { root.refresh() }) }
           Button { text: "Use"; onClicked: root.selectedId = modelData.id }
+          Button { text: modelData.enabled ? "On" : "Off"; onClicked: root.rpc.call("profile.enable", { profileId:modelData.id, enabled:!modelData.enabled }, function() { root.refresh() }) }
           Button { text: "•••"; onClicked: details.open() }
         }
         Dialog {
