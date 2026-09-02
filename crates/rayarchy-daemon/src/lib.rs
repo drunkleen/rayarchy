@@ -213,6 +213,25 @@ impl Daemon {
                 let logs = self.logs.lock().await;
                 serde_json::json!({"lines":logs.iter().rev().take(limit).cloned().collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>()})
             }
+            "backup.export" => {
+                let db = self.db.lock().await;
+                serde_json::json!({"version":1,"state":serde_json::to_value(&*db).unwrap_or_default()})
+            }
+            "backup.import" => {
+                let Some(state) = params.get("state") else {
+                    return serde_json::json!({"error":"missing backup state"});
+                };
+                let parsed: Database = match serde_json::from_value(state.clone()) {
+                    Ok(v) => v,
+                    Err(e) => return serde_json::json!({"error":format!("invalid backup: {e}")}),
+                };
+                if self.connected.lock().await.is_some() {
+                    return serde_json::json!({"error":"disconnect before restoring a backup"});
+                };
+                *self.db.lock().await = parsed;
+                let _ = self.save().await;
+                serde_json::json!({"ok":true})
+            }
             "test.history" => {
                 serde_json::to_value(&self.db.lock().await.test_history).unwrap_or_default()
             }
