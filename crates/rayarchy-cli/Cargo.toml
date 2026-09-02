@@ -11,3 +11,4 @@ path = "src/main.rs"
 rayarchy-daemon = { path = "../rayarchy-daemon" }
 tokio.workspace = true
 serde_json.workspace = true
+anyhow.workspace = true
