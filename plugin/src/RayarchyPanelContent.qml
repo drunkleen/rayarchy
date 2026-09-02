@@ -66,6 +66,18 @@ Item {
       return status + "  " + row.name + "  —  " + detail
     }).join("\n")
   }
+  function formatHistory(rows) {
+    if (!rows || rows.length === 0)
+      return "No diagnostic results recorded for this profile.";
+    return rows.slice().reverse().map(function (row) {
+      var stamp = row.timestamp ? new Date(Number(row.timestamp) * 1000).toLocaleString() : "Unknown time";
+      var kind = String(row.kind || "test").toUpperCase();
+      var result = row.ok ? "PASS" : "FAIL";
+      var latency = row.latencyMs === undefined ? "" : " • " + row.latencyMs + " ms";
+      var detail = row.ok ? "" : " • " + (row.error || "health check failed");
+      return stamp + " • " + kind + " • " + result + latency + detail;
+    }).join("\n");
+  }
   function cycleBulkSort() {
     root.bulkSortMode = root.bulkSortMode === "fastest" ? "successful" : (root.bulkSortMode === "successful" ? "failed" : "fastest")
   }
@@ -210,7 +222,7 @@ Item {
             Button { text: root.diagnosticRunning ? "Testing…" : "Proxy ping"; enabled: !root.diagnosticRunning; onClicked: root.runDiagnostic("test.proxy", {}, "Proxy test") }
             Button { text: "Check external IP"; onClicked: root.rpc.call("test.ip", {}, function(result,error) { root.message = error ? error.message : (result.protected ? "Proxy IP: " + result.proxyIp : "Proxy is not changing the external IP") }) }
             Button { text: root.diagnosticRunning ? "Testing…" : "Speed test"; enabled: !root.diagnosticRunning; onClicked: root.runDiagnostic("test.speed", {}, "Speed test") }
-            Button { text: "Test history"; onClicked: { details.close(); root.rpc.call("test.history", { profileId:modelData.id }, function(result,error) { historyText.text = error ? error.message : JSON.stringify(result, null, 2); history.open() }) } }
+            Button { text: "Test history"; onClicked: { details.close(); root.rpc.call("test.history", { profileId:modelData.id }, function(result,error) { historyText.text = error ? error.message : root.formatHistory(result); history.open() }) } }
             Button { text: "View daemon logs"; onClicked: { details.close(); root.rpc.call("system.logs", { limit:200 }, function(result,error) { logsText.text = error ? error.message : (result.lines || []).join("\n"); logs.open() }) } }
             Button { text: "Clear health result"; onClicked: root.rpc.call("test.history.clear", { profileId:modelData.id }, function(result,error) { root.message = error ? error.message : "Health result cleared"; if (!error) root.refresh() }) }
           Button { text: "Edit"; Accessible.name: "Edit " + modelData.name; onClicked: { details.close(); nameEdit.text=modelData.name; groupEdit.text=modelData.group || ""; serverEdit.text=modelData.server || ""; portEdit.text=String(modelData.port || ""); fieldsEdit.text=JSON.stringify(modelData.fields || {}, null, 2); edit.open() } }
