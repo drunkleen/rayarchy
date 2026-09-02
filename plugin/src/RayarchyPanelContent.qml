@@ -38,6 +38,15 @@ Item {
     })
     return values
   }
+  function formatBulkResults(results) {
+    if (!results || results.length === 0) return "No profiles were tested."
+    return results.map(function(row) {
+      var status = row.ok ? "PASS" : "FAIL"
+      var latency = Number(row.latencyMs || 0)
+      var detail = row.ok ? (latency + " ms") : (row.error || "health check failed")
+      return status + "  " + row.name + "  —  " + detail
+    }).join("\n")
+  }
   function moveProfile(profileId, delta) {
     var ids = root.allProfiles.map(function(profile) { return profile.id })
     var from = ids.indexOf(profileId)
@@ -138,7 +147,7 @@ Item {
     Button { text: "Subscriptions"; onClicked: { root.refreshSubscriptions(); subscriptions.open() } }
     Button { text: "Subscription status"; onClicked: { root.rpc.call("subscription.list", {}, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); if (!error) root.refreshSubscriptions(); subscriptionStatusLoader.item.open() }) } }
     Button { text: "Bulk TCP test"; onClicked: { root.rpc.call("test.bulk", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); subscriptionStatusLoader.item.open() }) } }
-    Button { text: "Test all proxy connections"; onClicked: { root.rpc.call("test.bulk.proxy", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { if (!error) root.bulkResults = result.results || []; subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); subscriptionStatusLoader.item.open() }) } }
+    Button { text: "Test all proxy connections"; onClicked: { root.rpc.call("test.bulk.proxy", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { if (!error) root.bulkResults = result.results || []; subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : root.formatBulkResults(root.bulkResults); subscriptionStatusLoader.item.open() }) } }
     Button { text: "Use best working profile"; enabled: root.bulkResults.some(function(r) { return r.ok }); onClicked: { var candidates = root.bulkResults.filter(function(r) { return r.ok }).sort(function(a, b) { return Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999) }); if (candidates.length) { root.selectedId = candidates[0].profileId; root.message = "Selected " + candidates[0].name + " (" + candidates[0].latencyMs + " ms)" } } }
     Button { text: "Cancel bulk test"; onClicked: root.rpc.call("test.bulk.cancel", {}, function(result, error) { root.message = error ? error.message : "Bulk test cancellation requested" }) }
     Text { text: root.subscriptionSummary; visible: text !== ""; color: root.subscriptionSummary.indexOf("errors") >= 0 ? "#ef6a6a" : Qt.darker(Color.foreground, 1.5) }
