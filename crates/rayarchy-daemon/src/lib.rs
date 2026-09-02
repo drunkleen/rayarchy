@@ -178,6 +178,7 @@ pub struct Daemon {
     logs: Mutex<Vec<String>>,
     bulk_cancel: AtomicBool,
     last_ip: Mutex<Option<serde_json::Value>>,
+    core_started_at: Mutex<Option<i64>>,
 }
 impl Daemon {
     pub fn new(path: PathBuf) -> anyhow::Result<Arc<Self>> {
@@ -197,6 +198,7 @@ impl Daemon {
             logs: Mutex::new(Vec::new()),
             bulk_cancel: AtomicBool::new(false),
             last_ip: Mutex::new(None),
+            core_started_at: Mutex::new(None),
         }))
     }
     async fn save(&self) -> anyhow::Result<()> {
@@ -348,6 +350,7 @@ impl Daemon {
             .map_err(|e| format!("could not start {bin}: {e}"))?;
         self.child_pid
             .store(child.id().unwrap_or(0), Ordering::Relaxed);
+        *self.core_started_at.lock().await = Some(chrono::Utc::now().timestamp());
         *self.process.lock().await = Some(child);
         for _ in 0..30 {
             if tokio::net::TcpStream::connect(("127.0.0.1", settings.local_port))
@@ -408,6 +411,7 @@ impl Daemon {
                 }
             }
             daemon.child_pid.store(0, Ordering::Relaxed);
+            *daemon.core_started_at.lock().await = None;
             let crashed_profile = daemon.connected.lock().await.take();
             let _ = std::fs::remove_file(&daemon.config_path);
             // Reconnect supervision is deliberately kept outside this child
@@ -419,6 +423,7 @@ impl Daemon {
 
     async fn disconnect_profile(&self) -> Result<(), String> {
         *self.connected.lock().await = None;
+        *self.core_started_at.lock().await = None;
         let pid = self.child_pid.swap(0, Ordering::Relaxed);
         if pid != 0 {
             let _ = std::process::Command::new("kill")
@@ -485,7 +490,8 @@ impl Daemon {
                 serde_json::json!({"xray":command_exists("xray"),"singBox":command_exists("sing-box"),"systemProxy":true,"dnsProtection":settings.dns_leak_protection,"lanBypass":settings.lan_bypass,"tun":false,"transparent":false,"killSwitch":false})
             }
             "system.diagnostics" => {
-                let status = serde_json::json!({"connected": self.connected.lock().await.is_some(), "socket": true});
+                let started = *self.core_started_at.lock().await;
+                let status = serde_json::json!({"connected": self.connected.lock().await.is_some(), "socket": true, "corePid": self.child_pid.load(Ordering::Relaxed), "coreUptimeSeconds": started.map(|at| (chrono::Utc::now().timestamp() - at).max(0))});
                 let xray = command_version("xray").await;
                 let sing_box = command_version("sing-box").await;
                 serde_json::json!({"status":status,"cores":{"xray":xray,"singBox":sing_box},"hints": if xray.is_none() && sing_box.is_none() { vec!["install xray or sing-box"] } else { Vec::<&str>::new() }})
