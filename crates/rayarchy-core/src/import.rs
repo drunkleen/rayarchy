@@ -1,6 +1,27 @@
 use crate::model::Profile;
 use crate::protocol::Protocol;
 
+fn decode_base64(input: &str) -> Option<Vec<u8>> {
+    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::new();
+    let mut buffer = 0u32;
+    let mut bits = 0u8;
+    for byte in input.bytes().filter(|b| !b" \r\n\t".contains(b)) {
+        if byte == b'=' {
+            break;
+        }
+        let value = alphabet.iter().position(|candidate| *candidate == byte)? as u32;
+        buffer = (buffer << 6) | value;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buffer >> bits) as u8);
+            buffer &= (1 << bits) - 1;
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
 /// Parse the URI forms most commonly emitted by v2rayN. Additional fields are
 /// retained in `fields` so editing/export remains lossless as support grows.
 pub fn parse_uri(input: &str) -> Result<Profile, String> {
@@ -18,6 +39,49 @@ pub fn parse_uri(input: &str) -> Result<Profile, String> {
         "wireguard" => Protocol::Wireguard,
         _ => return Err(format!("unsupported URI scheme: {scheme}")),
     };
+    if protocol == Protocol::Vmess {
+        if let Some(bytes) = decode_base64(rest) {
+            if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                let server = value
+                    .get("add")
+                    .and_then(|v| v.as_str())
+                    .ok_or("vmess profile has no server")?;
+                let port = value
+                    .get("port")
+                    .and_then(|v| v.as_u64().or_else(|| v.as_str()?.parse().ok()))
+                    .ok_or("vmess profile has no port")?;
+                let mut fields = serde_json::Map::new();
+                for key in ["id", "aid", "net", "type", "host", "path", "tls", "scy"] {
+                    if let Some(value) = value.get(key) {
+                        fields.insert(key.into(), value.clone());
+                    }
+                }
+                fields.insert(
+                    "user".into(),
+                    serde_json::Value::String(
+                        value
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .into(),
+                    ),
+                );
+                return Ok(Profile {
+                    protocol,
+                    name: value
+                        .get("ps")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(server)
+                        .into(),
+                    server: Some(server.into()),
+                    port: Some(port as u16),
+                    raw: Some(input.into()),
+                    fields: serde_json::Value::Object(fields),
+                    ..Profile::default()
+                });
+            }
+        }
+    }
     let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
     let host_port = authority
         .rsplit_once('@')
@@ -76,6 +140,14 @@ pub fn parse_input(input: &str) -> Result<Vec<Profile>, String> {
     let text = input.trim();
     if text.is_empty() {
         return Err("input is empty".into());
+    }
+    if !text.contains("://") && !text.starts_with('{') {
+        let compact: String = text.lines().map(str::trim).collect();
+        if let Some(decoded) = decode_base64(&compact) {
+            if let Ok(body) = String::from_utf8(decoded) {
+                return parse_input(&body);
+            }
+        }
     }
     if text.starts_with('{') {
         let value: serde_json::Value =
@@ -154,5 +226,19 @@ mod tests {
             2
         );
         assert!(parse_input("garbage").is_err());
+    }
+
+    #[test]
+    fn parses_vmess_base64_and_subscription_payloads() {
+        let encoded = "eyJ2IjoiMiIsInBzIjoiT2ZmaWNlIiwiYWRkIjoidnBuLmV4YW1wbGUiLCJwb3J0IjoiNDQzIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDEiLCJhaWQiOiIwIiwibmV0Ijoid3MifQ==";
+        let profile = parse_uri(&format!("vmess://{encoded}")).unwrap();
+        assert_eq!(profile.name, "Office");
+        assert_eq!(profile.server.as_deref(), Some("vpn.example"));
+        assert_eq!(
+            parse_input("dmxlc3M6Ly9pZEBleGFtcGxlLmNvbTo0NDM=")
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }
