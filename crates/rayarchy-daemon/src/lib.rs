@@ -78,7 +78,12 @@ impl Daemon {
             );
         }
         let core = configgen::choose_core(&profile, settings.preferred_core);
-        let config = configgen::build(&profile, core, "127.0.0.1", settings.local_port);
+        let rules = {
+            let db = self.db.lock().await;
+            db.routing.clone()
+        };
+        let mut config = configgen::build(&profile, core, "127.0.0.1", settings.local_port);
+        configgen::apply_rules(&mut config, core, &rules);
         if let Some(parent) = self.config_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
@@ -347,6 +352,9 @@ impl Daemon {
                         if self.connected.lock().await.is_some() {
                             return serde_json::json!({"error":"disconnect before changing connection settings"});
                         }
+                        if s.kill_switch {
+                            return serde_json::json!({"error":"kill switch requires the privileged helper and is not enabled in this build"});
+                        }
                         self.db.lock().await.settings = s;
                         let _ = self.save().await;
                         serde_json::json!({"ok":true})
@@ -500,5 +508,30 @@ mod tests {
             "Edited"
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn routing_rules_are_compiled_into_core_config() {
+        let profile = Profile {
+            server: Some("example.com".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        let rule = RoutingRule {
+            id: uuid::Uuid::new_v4(),
+            name: "LAN".into(),
+            match_type: "cidr".into(),
+            value: "192.168.0.0/16".into(),
+            action: "direct".into(),
+            enabled: true,
+        };
+        let mut config = configgen::build(
+            &profile,
+            rayarchy_core::protocol::Core::SingBox,
+            "127.0.0.1",
+            1080,
+        );
+        configgen::apply_rules(&mut config, rayarchy_core::protocol::Core::SingBox, &[rule]);
+        assert_eq!(config["route"]["rules"].as_array().unwrap().len(), 1);
     }
 }

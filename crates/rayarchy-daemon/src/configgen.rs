@@ -1,4 +1,5 @@
 use rayarchy_core::{
+    model::RoutingRule,
     protocol::{Core, Protocol},
     Profile,
 };
@@ -56,11 +57,72 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
     };
     match core {
         Core::SingBox => {
-            serde_json::json!({"log":{"level":"info"},"inbounds":[{"type":"mixed","tag":"rayarchy-in","listen":host,"listen_port":port}],"outbounds":[outbound,{"type":"direct","tag":"direct"},{"type":"block","tag":"block"}]})
+            serde_json::json!({"log":{"level":"info"},"inbounds":[{"type":"mixed","tag":"rayarchy-in","listen":host,"listen_port":port}],"outbounds":[outbound,{"type":"direct","tag":"direct"},{"type":"block","tag":"block"}],"route":{"rules":[]}})
         }
         Core::Xray => {
             serde_json::json!({"log":{"loglevel":"warning"},"inbounds":[{"tag":"rayarchy-in","listen":host,"port":port,"protocol":"mixed","settings":{}}],"outbounds":[outbound,{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole","tag":"block"}]})
         }
         Core::Auto => unreachable!(),
+    }
+}
+
+pub fn apply_rules(config: &mut serde_json::Value, core: Core, rules: &[RoutingRule]) {
+    let enabled = rules.iter().filter(|r| r.enabled);
+    match core {
+        Core::SingBox => {
+            let route = config
+                .as_object_mut()
+                .and_then(|o| o.get_mut("route"))
+                .and_then(|v| v.as_object_mut());
+            let Some(route) = route else {
+                return;
+            };
+            let list = route
+                .entry("rules")
+                .or_insert_with(|| serde_json::json!([]))
+                .as_array_mut();
+            let Some(list) = list else {
+                return;
+            };
+            for rule in enabled {
+                let key = match rule.match_type.as_str() {
+                    "domain" => "domain",
+                    "domain_suffix" => "domain_suffix",
+                    "ip" | "cidr" => "ip_cidr",
+                    _ => "domain_keyword",
+                };
+                let outbound = match rule.action.as_str() {
+                    "direct" => "direct",
+                    "block" => "block",
+                    _ => "proxy",
+                };
+                list.push(serde_json::json!({key:[rule.value],"outbound":outbound}));
+            }
+        }
+        Core::Xray => {
+            let routing = config
+                .as_object_mut()
+                .and_then(|o| o.get_mut("routing"))
+                .and_then(|v| v.as_object_mut());
+            let Some(routing) = routing else {
+                return;
+            };
+            let list = routing
+                .entry("rules")
+                .or_insert_with(|| serde_json::json!([]))
+                .as_array_mut();
+            let Some(list) = list else {
+                return;
+            };
+            for rule in enabled {
+                let outbound = match rule.action.as_str() {
+                    "direct" => "direct",
+                    "block" => "block",
+                    _ => "proxy",
+                };
+                list.push(serde_json::json!({"type":"field","domain":[rule.value],"outboundTag":outbound}));
+            }
+        }
+        Core::Auto => {}
     }
 }
