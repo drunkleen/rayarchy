@@ -1400,6 +1400,45 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
+    #[tokio::test]
+    async fn backup_round_trip_restores_profiles_and_settings() {
+        let source_path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let target_path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let source = Daemon::new(source_path.clone()).unwrap();
+        let profile = Profile {
+            name: "Backup".into(),
+            server: Some("backup.example".into()),
+            ..Default::default()
+        };
+        source
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        let exported = source
+            .dispatch("backup.export", serde_json::json!({}))
+            .await;
+        let target = Daemon::new(target_path.clone()).unwrap();
+        let restored = target
+            .dispatch(
+                "backup.import",
+                serde_json::json!({"state":exported["state"]}),
+            )
+            .await;
+        assert_eq!(restored["ok"], true);
+        assert_eq!(
+            target
+                .dispatch("profile.list", serde_json::json!({}))
+                .await
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let _ = std::fs::remove_file(source_path);
+        let _ = std::fs::remove_file(target_path);
+    }
+
     #[test]
     fn routing_rules_are_compiled_into_core_config() {
         let profile = Profile {
