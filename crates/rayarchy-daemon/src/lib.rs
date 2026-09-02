@@ -606,6 +606,54 @@ impl Daemon {
                     .map(|p| serde_json::json!({"payload":p.raw.clone().unwrap_or_else(|| serde_json::to_string(p).unwrap_or_default()),"format":"text"}))
                     .unwrap_or_else(|| serde_json::json!({"error":"profile not found"}))
             }
+            "profile.qr.image" => {
+                let id = params["profileId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let payload = self
+                    .db
+                    .lock()
+                    .await
+                    .profiles
+                    .iter()
+                    .find(|p| Some(p.id) == id)
+                    .map(|p| {
+                        p.raw
+                            .clone()
+                            .unwrap_or_else(|| serde_json::to_string(p).unwrap_or_default())
+                    });
+                let Some(payload) = payload else {
+                    return serde_json::json!({"error":"profile not found"});
+                };
+                let path =
+                    std::env::temp_dir().join(format!("rayarchy-qr-{}.png", uuid::Uuid::new_v4()));
+                let output = tokio::process::Command::new("qrencode")
+                    .args(["-o"])
+                    .arg(&path)
+                    .arg(&payload)
+                    .output()
+                    .await;
+                match output {
+                    Ok(result) if result.status.success() => {
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let _ = std::fs::set_permissions(
+                                &path,
+                                std::fs::Permissions::from_mode(0o600),
+                            );
+                        }
+                        serde_json::json!({"imagePath":path,"format":"png"})
+                    }
+                    Ok(_) => {
+                        let _ = std::fs::remove_file(&path);
+                        serde_json::json!({"error":"qrencode could not generate an image"})
+                    }
+                    Err(_) => {
+                        serde_json::json!({"error":"qrencode is not installed; install it to generate QR images"})
+                    }
+                }
+            }
             "import.preview" => {
                 let input = params["input"].as_str().unwrap_or("");
                 match rayarchy_core::import::parse_input(input) {

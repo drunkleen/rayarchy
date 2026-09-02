@@ -76,6 +76,7 @@ Item {
   Rectangle { anchors.fill: parent; color: Color.background }
   Loader { id: subscriptionStatusLoader; sourceComponent: Component { Dialog { modal: true; title: "Subscription status"; standardButtons: Dialog.Close; contentItem: TextArea { id: statusText; width: 520; height: 300; readOnly: true; wrapMode: TextEdit.NoWrap; selectByMouse: true } } } }
   Loader { id: rawEditorLoader; sourceComponent: Component { Dialog { modal: true; title: "Raw profile configuration"; standardButtons: Dialog.Save | Dialog.Cancel; property string profileId: ""; contentItem: TextArea { id: rawText; width: 560; height: 320; wrapMode: TextEdit.NoWrap; selectByMouse: true } onAccepted: root.rpc.call("profile.raw.update", { profileId: rawEditorLoader.item.profileId, raw: rawText.text }, function(result, error) { root.message = error ? error.message : "Raw configuration saved"; if (!error) rawEditorLoader.item.close(); root.refresh() }) } } }
+  Loader { id: qrImageLoader; sourceComponent: Component { Dialog { modal: true; title: "QR code"; standardButtons: Dialog.Close; contentItem: Image { id: qrImage; width: 320; height: 320; fillMode: Image.PreserveAspectFit } } } }
   Connections { target: subEdit; function onClosed() { root.refreshSubscriptions() } }
   Column {
     anchors.fill: parent; anchors.margins: 18; spacing: 12
@@ -119,6 +120,7 @@ Item {
             Button { text: "Edit raw configuration"; onClicked: { rawEditorLoader.item.profileId = modelData.id; rawEditorLoader.item.contentItem.children[0].text = modelData.raw || ""; rawEditorLoader.item.open() } }
             Button { text: "Export"; onClicked: root.rpc.call("profile.export", { profileId: modelData.id }, function(result, error) { if (!error) exportText.text=result.payload || ""; exportDialog.open() }) }
             Button { text: "QR / share"; onClicked: root.rpc.call("profile.qr", { profileId: modelData.id }, function(result, error) { if (!error) qrText.text=result.payload || ""; qrDialog.open() }) }
+            Button { text: "QR image"; onClicked: root.rpc.call("profile.qr.image", { profileId: modelData.id }, function(result, error) { if (error) root.message = error.message; else { qrImageLoader.item.contentItem.source = result.imagePath; qrImageLoader.item.open() } }) }
             Button { text: "Delete"; onClicked: { details.close(); pendingDeleteId = modelData.id; pendingDeleteName = modelData.name; confirmDelete.open() } }
           }
         }
