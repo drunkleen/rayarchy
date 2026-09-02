@@ -321,13 +321,13 @@ Item {
         anchors.fill: parent
         color: Color.background
     }
-    Row {
+    Flow {
         id: navigation
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: 12
-        height: Style.space(38)
+        height: root.width < Style.space(520) ? Style.space(76) : Style.space(38)
         spacing: 6
         Button {
             text: "Overview"
