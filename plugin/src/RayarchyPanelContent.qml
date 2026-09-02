@@ -701,15 +701,6 @@ Item {
                         }
                     }
                     Button {
-                        text: root.diagnosticRunning ? "Testing…" : "Re-test this profile"
-                        enabled: !root.diagnosticRunning
-                        Accessible.name: "Re-test " + modelData.name
-                        onClicked: root.runDiagnostic("test.tcp", {
-                            host: modelData.server || "",
-                            port: modelData.port || 443
-                        }, "Profile test")
-                    }
-                    Button {
                         text: "Test then connect"
                         enabled: !root.diagnosticRunning && !root.connected
                         Accessible.name: "Test then connect " + modelData.name
