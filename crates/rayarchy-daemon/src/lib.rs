@@ -155,11 +155,15 @@ async fn command_version(name: &str) -> Option<String> {
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Database {
+    #[serde(default)]
     profiles: Vec<Profile>,
+    #[serde(default)]
     subscriptions: Vec<Subscription>,
+    #[serde(default)]
     routing: Vec<RoutingRule>,
     #[serde(default)]
     test_history: Vec<serde_json::Value>,
+    #[serde(default)]
     settings: Settings,
 }
 
@@ -1376,6 +1380,23 @@ mod tests {
             .await;
         assert_eq!(settings["dnsLeakProtection"], false);
         assert_eq!(settings["lanBypass"], false);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn legacy_state_without_new_sections_migrates() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        std::fs::write(&path, br#"{"profiles":[]}"#).unwrap();
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let settings = daemon.dispatch("settings.get", serde_json::json!({})).await;
+        assert_eq!(settings["localPort"], 1080);
+        assert!(daemon
+            .dispatch("profile.list", serde_json::json!({}))
+            .await
+            .as_array()
+            .unwrap()
+            .is_empty());
         let _ = std::fs::remove_file(path);
     }
 
