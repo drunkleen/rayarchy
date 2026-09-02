@@ -481,9 +481,9 @@ Item {
         anchors.fill: parent
         anchors.margins: 12
         clip: true
-        contentWidth: availableWidth
+        contentWidth: Math.max(0, root.width - Style.space(24))
         Column {
-            width: availableWidth
+            width: Math.max(0, root.width - Style.space(24))
             spacing: 12
             Row {
                 width: parent.width
