@@ -22,6 +22,25 @@ fn decode_base64(input: &str) -> Option<Vec<u8>> {
     (!out.is_empty()).then_some(out)
 }
 
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut output = Vec::with_capacity(input.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let hex = &input[index + 1..index + 3];
+            if let Ok(value) = u8::from_str_radix(hex, 16) {
+                output.push(value);
+                index += 3;
+                continue;
+            }
+        }
+        output.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&output).replace('+', " ")
+}
+
 /// Parse the URI forms most commonly emitted by v2rayN. Additional fields are
 /// retained in `fields` so editing/export remains lossless as support grows.
 pub fn parse_uri(input: &str) -> Result<Profile, String> {
@@ -113,7 +132,7 @@ pub fn parse_uri(input: &str) -> Result<Profile, String> {
             let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
             fields.insert(
                 key.to_string(),
-                serde_json::Value::String(value.to_string()),
+                serde_json::Value::String(percent_decode(value)),
             );
         }
     }
@@ -126,7 +145,7 @@ pub fn parse_uri(input: &str) -> Result<Profile, String> {
         name: if name.is_empty() {
             format!("{scheme} {host}:{port}")
         } else {
-            name.to_string()
+            percent_decode(name)
         },
         server: Some(host.to_string()),
         port: Some(port),
@@ -343,5 +362,13 @@ mod tests {
         assert_eq!(parse_input(yaml).unwrap()[0].protocol, Protocol::Trojan);
         let wg = "[Interface]\nPrivateKey = hidden\n[Peer]\nEndpoint = vpn.example:51820";
         assert_eq!(parse_input(wg).unwrap()[0].protocol, Protocol::Wireguard);
+    }
+
+    #[test]
+    fn decodes_uri_display_name_and_query_values() {
+        let profile =
+            parse_uri("vless://id@example.com:443?path=%2Fray%20ws#Office%20%E2%9C%93").unwrap();
+        assert_eq!(profile.name, "Office ✓");
+        assert_eq!(profile.fields["path"], "/ray ws");
     }
 }
