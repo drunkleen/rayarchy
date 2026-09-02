@@ -35,16 +35,23 @@ BarWidget {
         visible: false
         onLoaded: root.injectPanel()
     }
-    WidgetButton {
+    BarIconButton {
         id: button
         anchors.fill: parent
         bar: root.bar
-        text: "󰖟"
-        labelVisible: true
-        hasVisualContent: true
+        tooltipText: "Rayarchy proxy manager"
+        iconComponent: Component {
+            Text {
+                anchors.centerIn: parent
+                text: "󰖟"
+                color: root.bar ? root.bar.foreground : Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.space(14)
+            }
+        }
         Accessible.name: "Open Rayarchy proxy manager"
-        onPressed: function (mouseButton) {
-            if (mouseButton === Qt.LeftButton)
+        onPressed: function (buttonCode) {
+            if (buttonCode === Qt.LeftButton)
                 root.togglePanel();
         }
     }
