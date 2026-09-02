@@ -43,3 +43,8 @@ RAYARCHY_SUBSCRIPTION_URL='https://example.invalid/subscription' \
 ```
 
 The script keeps the downloaded payload temporary and reports only counts.
+
+After upgrading from an older Rayarchy build, rerun `setup.sh` from the cloned
+checkout. It rebuilds and installs both the daemon and CLI under
+`~/.local/bin`, then reloads the user service; this avoids accidentally
+testing a stale `/usr/local/bin` binary.
