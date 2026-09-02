@@ -150,9 +150,9 @@ Item {
           Button { text: modelData.favorite ? "★" : "☆"; onClicked: root.rpc.call("profile.favorite", { profileId: modelData.id, favorite: !modelData.favorite }, function(result, error) { root.message = error ? error.message : ""; if (!error) root.refresh() }) }
           Button { text: "↑"; enabled: root.sortMode === "manual" && root.query === "" && root.groupFilter === "" && !root.favoritesOnly; onClicked: root.moveProfile(modelData.id, -1) }
           Button { text: "↓"; enabled: root.sortMode === "manual" && root.query === "" && root.groupFilter === "" && !root.favoritesOnly; onClicked: root.moveProfile(modelData.id, 1) }
-          Button { text: "Use"; onClicked: root.selectedId = modelData.id }
+          Button { text: "Use"; Accessible.name: "Select " + modelData.name; onClicked: root.selectedId = modelData.id }
           Button { text: modelData.enabled ? "On" : "Off"; onClicked: root.rpc.call("profile.enable", { profileId:modelData.id, enabled:!modelData.enabled }, function(result, error) { root.message = error ? error.message : ""; if (!error) root.refresh() }) }
-          Button { text: "•••"; onClicked: details.open() }
+          Button { text: "•••"; Accessible.name: "Open actions for " + modelData.name; onClicked: details.open() }
         }
         Dialog {
           id: details; title: modelData.name; modal: true; standardButtons: Dialog.Close
@@ -173,7 +173,7 @@ Item {
             Button { text: "Export"; onClicked: root.rpc.call("profile.export", { profileId: modelData.id }, function(result, error) { if (!error) exportText.text=result.payload || ""; exportDialog.open() }) }
             Button { text: "QR / share"; onClicked: root.rpc.call("profile.qr", { profileId: modelData.id }, function(result, error) { if (!error) qrText.text=result.payload || ""; qrDialog.open() }) }
             Button { text: "QR image"; onClicked: root.rpc.call("profile.qr.image", { profileId: modelData.id }, function(result, error) { if (error) root.message = error.message; else { qrImageLoader.item.contentItem.source = result.imagePath; qrImageLoader.item.open() } }) }
-            Button { text: "Delete"; onClicked: { details.close(); pendingDeleteId = modelData.id; pendingDeleteName = modelData.name; confirmDelete.open() } }
+            Button { text: "Delete"; Accessible.name: "Delete " + modelData.name; onClicked: { details.close(); pendingDeleteId = modelData.id; pendingDeleteName = modelData.name; confirmDelete.open() } }
           }
         }
         Dialog { id: edit; title: "Edit profile"; modal: true; standardButtons: Dialog.Save | Dialog.Cancel; contentItem: Column { spacing: 8; Text { text: "Protocol: " + modelData.protocol + " • use Protocol fields for supported options"; color: Color.accent; wrapMode: Text.WordWrap } TextField { id: nameEdit; placeholderText: "Profile name" } TextField { id: groupEdit; placeholderText: "Group (optional)" } TextField { id: serverEdit; placeholderText: "Server" } TextField { id: portEdit; placeholderText: "Port"; inputMethodHints: Qt.ImhDigitsOnly } TextArea { id: fieldsEdit; width: 460; height: 180; placeholderText: "Protocol fields (JSON)"; selectByMouse: true } } onAccepted: { var fields; try { fields=JSON.parse(fieldsEdit.text || "{}"); } catch(e) { root.message="Invalid protocol fields JSON"; edit.open(); return } root.rpc.call("profile.update", { profile: { id:modelData.id, name:nameEdit.text, protocol:modelData.protocol, core:modelData.core, enabled:modelData.enabled, favorite:modelData.favorite, group:groupEdit.text.trim(), server:serverEdit.text, port:Number(portEdit.text), sourceId:modelData.sourceId, fields:fields, raw:modelData.raw } }, function(result,error) { if (error) root.message=error.message; else showSuccess("Profile saved"); if (!error) root.refresh() }) }
