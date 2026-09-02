@@ -709,8 +709,16 @@ impl Daemon {
                 for profile in profiles {
                     let mut value = serde_json::to_value(profile).unwrap_or_default();
                     if let Some(test) = history.iter().rev().find(|row| {
-                        row.get("profileId").and_then(|id| id.as_str())
-                            == value.get("id").and_then(|id| id.as_str())
+                        let fresh = row
+                            .get("timestamp")
+                            .and_then(|v| v.as_i64())
+                            .map(|ts| {
+                                chrono::Utc::now().timestamp().saturating_sub(ts) <= 24 * 60 * 60
+                            })
+                            .unwrap_or(true);
+                        fresh
+                            && row.get("profileId").and_then(|id| id.as_str())
+                                == value.get("id").and_then(|id| id.as_str())
                     }) {
                         value["lastTest"] = test.clone();
                     }
@@ -1169,6 +1177,12 @@ impl Daemon {
 
     async fn record_test(&self, result: serde_json::Value) {
         let mut db = self.db.lock().await;
+        let mut result = result;
+        if let Some(object) = result.as_object_mut() {
+            object
+                .entry("timestamp")
+                .or_insert_with(|| serde_json::json!(chrono::Utc::now().timestamp()));
+        }
         db.test_history.push(result);
         if db.test_history.len() > 100 {
             db.test_history.remove(0);
@@ -1275,6 +1289,27 @@ mod tests {
         let history = daemon.dispatch("test.history", serde_json::json!({})).await;
         assert_eq!(history.as_array().unwrap().len(), 1);
         assert_eq!(history[0]["profileId"], second.to_string());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn stale_profile_health_is_not_exposed_in_listing() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Stale".into(),
+            server: Some("stale.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        let id = profile.id;
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        daemon.record_test(serde_json::json!({"profileId":id,"ok":true,"timestamp":chrono::Utc::now().timestamp() - 3 * 24 * 60 * 60})).await;
+        let listed = daemon.dispatch("profile.list", serde_json::json!({})).await;
+        assert!(listed[0].get("lastTest").is_none());
         let _ = std::fs::remove_file(path);
     }
 
