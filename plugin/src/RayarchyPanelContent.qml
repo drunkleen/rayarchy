@@ -122,13 +122,14 @@ Item {
   Column {
     anchors.fill: parent; anchors.margins: 18; spacing: 12
     Row { spacing: 12; Text { text: "Rayarchy"; color: Color.foreground; font.bold: true; font.pixelSize: 22 } Button { text: root.connected ? "Disconnect" : "Connect"; enabled: root.selectedId !== "" || root.connected; onClicked: if (root.rpc) root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : { profileId: root.selectedId }, function(result, error) { if (error) { root.message = error.message || "Connection failed" } else { root.message = root.connected ? "Disconnected" : "Connected"; root.refreshStatus() } }) } }
-    TextField { width: parent.width; placeholderText: "Search profiles…"; onTextChanged: { root.query = text; root.refresh() } }
+    TextField { id: searchField; width: parent.width; placeholderText: "Search profiles…"; onTextChanged: { root.query = text; root.refresh() } }
     Row {
       spacing: 8
       ComboBox { id: groupPicker; model: root.groups(); onActivated: { root.groupFilter = currentIndex === 0 ? "" : currentText; root.refresh() } }
       ComboBox { model: ["manual", "name", "server", "favorites"]; onActivated: { root.sortMode = currentText; root.refresh() } }
       CheckBox { text: "Favorites"; checked: root.favoritesOnly; onToggled: { root.favoritesOnly = checked; root.refresh() } }
       CheckBox { text: "Healthy only"; checked: root.healthOnly; onToggled: { root.healthOnly = checked; root.refresh() } }
+      Button { text: "Clear filters"; visible: root.query !== "" || root.groupFilter !== "" || root.favoritesOnly || root.healthOnly || root.sortMode !== "manual"; onClicked: { searchField.text = ""; root.query = ""; root.groupFilter = ""; root.favoritesOnly = false; root.healthOnly = false; root.sortMode = "manual"; groupPicker.currentIndex = 0; root.refresh() } }
     }
     Text { visible: root.profiles.length === 0; text: "No profiles yet. Add a profile or subscription to begin."; color: Color.foreground }
     Text { visible: root.message !== ""; text: root.message; color: Color.accent; width: parent.width; wrapMode: Text.WordWrap }
