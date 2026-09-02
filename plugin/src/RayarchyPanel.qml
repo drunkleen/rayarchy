@@ -10,6 +10,12 @@ Panel {
     property var anchorItem: null
     property var hostWidget: null
     readonly property var barIdentity: hostWidget || root
+    function openFromHotkey() {
+        root.controller.show();
+    }
+    function toggle() {
+        root.opened ? root.close() : root.openFromHotkey();
+    }
     RayarchyRpc {
         id: rpc
     }

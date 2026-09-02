@@ -17,11 +17,15 @@ BarWidget {
     }
     function open() {
         if (panelLoader.item)
-            panelLoader.item.open();
+            panelLoader.item.openFromHotkey();
     }
     function close() {
         if (panelLoader.item)
             panelLoader.item.close();
+    }
+    function togglePanel() {
+        if (panelLoader.item)
+            panelLoader.item.toggle();
     }
     readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
     Loader {
@@ -41,7 +45,7 @@ BarWidget {
         Accessible.name: "Open Rayarchy proxy manager"
         onPressed: function (mouseButton) {
             if (mouseButton === Qt.LeftButton)
-                root.open();
+                root.togglePanel();
         }
     }
 }
