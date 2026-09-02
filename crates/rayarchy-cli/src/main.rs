@@ -57,16 +57,28 @@ async fn main() -> anyhow::Result<()> {
             print_json(result);
         }
         "best" => {
+            let connect = args.any(|arg| arg == "--connect");
             let profiles = daemon.dispatch("profile.list", serde_json::json!({})).await;
             let best = profiles.as_array().and_then(|rows| {
                 rows.iter()
                     .filter(|row| row["lastTest"]["ok"].as_bool() == Some(true))
                     .min_by_key(|row| row["lastTest"]["latencyMs"].as_u64().unwrap_or(u64::MAX))
             });
-            print_json(
-                best.cloned()
-                    .unwrap_or_else(|| serde_json::json!({"error":"no recently verified profile"})),
-            );
+            let Some(best) = best else {
+                print_json(serde_json::json!({"error":"no recently verified profile"}));
+                return Ok(());
+            };
+            if connect {
+                let connection = daemon
+                    .dispatch(
+                        "profile.connect",
+                        serde_json::json!({"profileId":best["id"]}),
+                    )
+                    .await;
+                print_json(serde_json::json!({"profile":best,"connection":connection}));
+            } else {
+                print_json(best.clone());
+            }
         }
         "diagnostics" => {
             print_json(
@@ -92,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         "help" | "--help" | "-h" => {
-            println!("rayarchy [status|profiles|connect ID|disconnect|ip|history|bulk ID...|bulk-proxy ID...|best|diagnostics|validate ID|import URI]")
+            println!("rayarchy [status|profiles|connect ID|disconnect|ip|history|bulk ID...|bulk-proxy ID...|best [--connect]|diagnostics|validate ID|import URI]")
         }
         command => {
             eprintln!("unknown command: {command}");
