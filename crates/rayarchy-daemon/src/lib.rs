@@ -540,6 +540,34 @@ impl Daemon {
                 }
                 serde_json::json!({"results":results,"cancelled":self.bulk_cancel.load(Ordering::Relaxed)})
             }
+            "test.bulk.proxy" => {
+                if self.connected.lock().await.is_some() {
+                    return serde_json::json!({"error":"disconnect before running bulk proxy tests"});
+                }
+                self.bulk_cancel.store(false, Ordering::Relaxed);
+                let ids = params["profileIds"].as_array().cloned().unwrap_or_default();
+                let profiles = self.db.lock().await.profiles.clone();
+                let mut results = Vec::new();
+                for value in ids.into_iter().take(20) {
+                    if self.bulk_cancel.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let id = value.as_str().and_then(|s| uuid::Uuid::parse_str(s).ok());
+                    let Some(profile) = profiles.iter().find(|p| Some(p.id) == id && p.enabled)
+                    else {
+                        continue;
+                    };
+                    let start = std::time::Instant::now();
+                    let outcome = self.connect_profile(profile.id).await;
+                    let ok = outcome.is_ok();
+                    let error = outcome.err();
+                    let _ = self.disconnect_profile().await;
+                    let row = serde_json::json!({"kind":"bulk-proxy","profileId":profile.id,"name":profile.name,"ok":ok,"latencyMs":start.elapsed().as_millis(),"error":error});
+                    self.record_test(row.clone()).await;
+                    results.push(row);
+                }
+                serde_json::json!({"results":results,"cancelled":self.bulk_cancel.load(Ordering::Relaxed)})
+            }
             "test.bulk.cancel" => {
                 self.bulk_cancel.store(true, Ordering::Relaxed);
                 serde_json::json!({"ok":true})
@@ -1506,6 +1534,27 @@ mod tests {
             .dispatch("system.status", serde_json::json!({}))
             .await;
         assert_eq!(status["connected"], false);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn bulk_proxy_test_requires_disconnected_state() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Bulk guard".into(),
+            server: Some("bulk.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        let result = daemon
+            .dispatch("test.bulk.proxy", serde_json::json!({"profileIds":[]}))
+            .await;
+        assert!(result.get("results").is_some());
         let _ = std::fs::remove_file(path);
     }
 
