@@ -40,11 +40,21 @@ async fn main() -> anyhow::Result<()> {
         }
         "bulk-proxy" => {
             let ids = args.map(serde_json::Value::String).collect::<Vec<_>>();
-            print_json(
-                daemon
-                    .dispatch("test.bulk.proxy", serde_json::json!({"profileIds":ids}))
-                    .await,
-            );
+            let mut result = daemon
+                .dispatch("test.bulk.proxy", serde_json::json!({"profileIds":ids}))
+                .await;
+            if let Some(rows) = result.get("results").and_then(|v| v.as_array()) {
+                let passing = rows
+                    .iter()
+                    .filter(|row| row["ok"].as_bool() == Some(true))
+                    .count();
+                let fastest = rows
+                    .iter()
+                    .filter(|row| row["ok"].as_bool() == Some(true))
+                    .min_by_key(|row| row["latencyMs"].as_u64().unwrap_or(u64::MAX));
+                result["summary"] = serde_json::json!({"total":rows.len(),"passing":passing,"failing":rows.len()-passing,"fastestProfileId":fastest.and_then(|row| row["profileId"].clone().as_str().map(str::to_owned))});
+            }
+            print_json(result);
         }
         "diagnostics" => {
             print_json(
