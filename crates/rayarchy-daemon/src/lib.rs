@@ -49,6 +49,28 @@ fn validate_profile(profile: &Profile) -> Result<(), String> {
         if user.trim().is_empty() {
             return Err("profile credential/UUID is required".into());
         }
+        if matches!(
+            profile.protocol,
+            rayarchy_core::protocol::Protocol::Vless | rayarchy_core::protocol::Protocol::Vmess
+        ) && uuid::Uuid::parse_str(user).is_err()
+        {
+            return Err("VLESS/VMess user must be a valid UUID".into());
+        }
+    }
+    if let Some(security) = profile.fields.get("security").and_then(|v| v.as_str()) {
+        if !security.is_empty() && !matches!(security, "tls" | "none") {
+            return Err("security must be tls or none".into());
+        }
+    }
+    if let Some(network) = profile
+        .fields
+        .get("type")
+        .or_else(|| profile.fields.get("network"))
+        .and_then(|v| v.as_str())
+    {
+        if !network.is_empty() && !matches!(network, "tcp" | "ws" | "grpc" | "http" | "h2") {
+            return Err("unsupported transport network".into());
+        }
     }
     Ok(())
 }
