@@ -43,6 +43,9 @@ Item {
       }
     }
     Button { text: "Add profile"; onClicked: addDialog.open() }
+    Button { text: "Subscriptions"; onClicked: subscriptions.open() }
   }
   Dialog { id: addDialog; modal: true; title: "Add profile"; standardButtons: Dialog.Ok | Dialog.Cancel; contentItem: TextArea { id: input; placeholderText: "Paste a vless://, vmess://, trojan://, ss://, JSON, or YAML configuration" } onAccepted: if (root.rpc) root.rpc.call("import.commit", { input: input.text }, function(result, error) { if (!error) { input.text = ""; root.refresh() } }) }
+  Dialog { id: subscriptions; modal: true; title: "Subscriptions"; standardButtons: Dialog.Close; contentItem: Column { spacing: 8; Text { text: "Add a subscription URL"; color: Color.foreground } TextField { id: subName; placeholderText: "Name" } TextField { id: subUrl; placeholderText: "https://example/subscribe" } Button { text: "Add and refresh"; onClicked: root.rpc.call("subscription.create", { subscription:{name:subName.text, url:subUrl.text, enabled:true, autoUpdate:"daily"} }, function(result,error) { if (!error) { subscriptions.close(); root.refresh() } }) } }
+  }
 }

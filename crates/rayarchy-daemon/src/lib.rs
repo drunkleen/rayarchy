@@ -278,6 +278,77 @@ impl Daemon {
                 let _ = self.save().await;
                 serde_json::json!({"subscriptionId":id})
             }
+            "subscription.update" => {
+                let sub: Subscription = match serde_json::from_value(params["subscription"].clone())
+                {
+                    Ok(v) => v,
+                    Err(e) => return serde_json::json!({"error":e.to_string()}),
+                };
+                let mut db = self.db.lock().await;
+                let Some(existing) = db.subscriptions.iter_mut().find(|s| s.id == sub.id) else {
+                    return serde_json::json!({"error":"subscription not found"});
+                };
+                *existing = sub;
+                drop(db);
+                let _ = self.save().await;
+                serde_json::json!({"ok":true})
+            }
+            "subscription.delete" => {
+                let id = params["subscriptionId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let mut db = self.db.lock().await;
+                db.subscriptions.retain(|s| Some(s.id) != id);
+                db.profiles.retain(|p| p.source_id != id);
+                drop(db);
+                let _ = self.save().await;
+                serde_json::json!({"ok":true})
+            }
+            "subscription.refresh" => {
+                let id = params["subscriptionId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let Some(id) = id else {
+                    return serde_json::json!({"error":"invalid subscription id"});
+                };
+                let url = {
+                    let db = self.db.lock().await;
+                    match db.subscriptions.iter().find(|s| s.id == id) {
+                        Some(s) if s.enabled => s.url.clone(),
+                        Some(_) => return serde_json::json!({"error":"subscription is disabled"}),
+                        None => return serde_json::json!({"error":"subscription not found"}),
+                    }
+                };
+                let output = match tokio::process::Command::new("curl")
+                    .args(["-fsSL", "--max-time", "20"])
+                    .arg(&url)
+                    .output()
+                    .await
+                {
+                    Ok(v) if v.status.success() => v,
+                    Ok(_) => return serde_json::json!({"error":"subscription download failed"}),
+                    Err(e) => return serde_json::json!({"error":e.to_string()}),
+                };
+                let body = String::from_utf8_lossy(&output.stdout);
+                let parsed: Vec<Profile> = body
+                    .lines()
+                    .filter_map(|line| rayarchy_core::import::parse_uri(line).ok())
+                    .map(|mut p| {
+                        p.source_id = Some(id);
+                        p
+                    })
+                    .collect();
+                if parsed.is_empty() {
+                    return serde_json::json!({"error":"subscription contained no supported profiles"});
+                }
+                let count = parsed.len();
+                let mut db = self.db.lock().await;
+                db.profiles.retain(|p| p.source_id != Some(id));
+                db.profiles.extend(parsed);
+                drop(db);
+                let _ = self.save().await;
+                serde_json::json!({"updated":count})
+            }
             _ => serde_json::json!({"error":"method not found"}),
         }
     }
