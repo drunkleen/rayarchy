@@ -1,5 +1,11 @@
 use rayarchy_core::{Profile, RoutingRule, Settings, Subscription};
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
+};
 use tokio::sync::Mutex;
 pub mod configgen;
 pub mod server;
@@ -26,6 +32,7 @@ pub struct Daemon {
     path: PathBuf,
     connected: Mutex<Option<uuid::Uuid>>,
     process: Mutex<Option<tokio::process::Child>>,
+    child_pid: AtomicU32,
     config_path: PathBuf,
     proxy_backup: Mutex<Option<sysproxy::Backup>>,
 }
@@ -41,6 +48,7 @@ impl Daemon {
             path,
             connected: Mutex::new(None),
             process: Mutex::new(None),
+            child_pid: AtomicU32::new(0),
             config_path: std::env::temp_dir().join("rayarchy/config.json"),
             proxy_backup: Mutex::new(None),
         }))
@@ -55,7 +63,7 @@ impl Daemon {
         Ok(())
     }
 
-    async fn connect_profile(&self, id: uuid::Uuid) -> Result<(), String> {
+    async fn connect_profile(self: &Arc<Self>, id: uuid::Uuid) -> Result<(), String> {
         let (profile, settings) = {
             let db = self.db.lock().await;
             (
@@ -104,6 +112,8 @@ impl Daemon {
             .stderr(std::process::Stdio::null())
             .spawn()
             .map_err(|e| format!("could not start {bin}: {e}"))?;
+        self.child_pid
+            .store(child.id().unwrap_or(0), Ordering::Relaxed);
         *self.process.lock().await = Some(child);
         for _ in 0..30 {
             if tokio::net::TcpStream::connect(("127.0.0.1", settings.local_port))
@@ -135,11 +145,28 @@ impl Daemon {
             }
         }
         *self.connected.lock().await = Some(id);
+        let daemon = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut child = match daemon.process.lock().await.take() {
+                Some(child) => child,
+                None => return,
+            };
+            let _ = child.wait().await;
+            daemon.child_pid.store(0, Ordering::Relaxed);
+            *daemon.connected.lock().await = None;
+            let _ = std::fs::remove_file(&daemon.config_path);
+        });
         Ok(())
     }
 
     async fn disconnect_profile(&self) -> Result<(), String> {
         *self.connected.lock().await = None;
+        let pid = self.child_pid.swap(0, Ordering::Relaxed);
+        if pid != 0 {
+            let _ = std::process::Command::new("kill")
+                .arg(pid.to_string())
+                .status();
+        }
         if let Some(backup) = self.proxy_backup.lock().await.take() {
             let _ = sysproxy::restore(&backup);
         }
@@ -149,7 +176,11 @@ impl Daemon {
         let _ = std::fs::remove_file(&self.config_path);
         Ok(())
     }
-    pub async fn dispatch(&self, method: &str, params: serde_json::Value) -> serde_json::Value {
+    pub async fn dispatch(
+        self: &Arc<Self>,
+        method: &str,
+        params: serde_json::Value,
+    ) -> serde_json::Value {
         match method {
             "system.ping" => serde_json::json!({"ok":true}),
             "system.status" => {
