@@ -678,6 +678,7 @@ impl Daemon {
                 let sort = params["sort"].as_str().unwrap_or("manual");
                 let db = self.db.lock().await;
                 let history = db.test_history.clone();
+                let retention = i64::from(db.settings.health_retention_hours.max(1)) * 60 * 60;
                 let mut profiles: Vec<_> = db
                     .profiles
                     .iter()
@@ -713,7 +714,7 @@ impl Daemon {
                             .get("timestamp")
                             .and_then(|v| v.as_i64())
                             .map(|ts| {
-                                chrono::Utc::now().timestamp().saturating_sub(ts) <= 24 * 60 * 60
+                                chrono::Utc::now().timestamp().saturating_sub(ts) <= retention
                             })
                             .unwrap_or(true);
                         fresh
@@ -1050,6 +1051,9 @@ impl Daemon {
                     Ok(s) => {
                         if s.local_port == 0 {
                             return serde_json::json!({"error":"local port must be between 1 and 65535"});
+                        }
+                        if !(1..=720).contains(&s.health_retention_hours) {
+                            return serde_json::json!({"error":"health retention must be between 1 and 720 hours"});
                         }
                         if self.connected.lock().await.is_some() {
                             return serde_json::json!({"error":"disconnect before changing connection settings"});

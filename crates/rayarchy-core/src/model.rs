@@ -95,6 +95,8 @@ pub struct Settings {
     pub dns_leak_protection: bool,
     #[serde(default)]
     pub lan_bypass: bool,
+    #[serde(default = "default_health_retention_hours")]
+    pub health_retention_hours: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +123,10 @@ impl Default for Settings {
             kill_switch: false,
             dns_leak_protection: true,
             lan_bypass: true,
+            health_retention_hours: 24,
         }
     }
+}
+fn default_health_retention_hours() -> u32 {
+    24
 }

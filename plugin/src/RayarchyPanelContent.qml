@@ -201,6 +201,7 @@ Item {
         mode.currentIndex = ["system_proxy", "local", "tun", "transparent"].indexOf(settings.values.connectionMode)
         core.currentIndex = ["auto", "sing-box", "xray"].indexOf(settings.values.preferredCore)
         port.text = String(settings.values.localPort || 1080)
+        retention.text = String(settings.values.healthRetentionHours || 24)
         dns.checked = !!settings.values.dnsLeakProtection
         lan.checked = !!settings.values.lanBypass
       }
@@ -210,10 +211,11 @@ Item {
       ComboBox { id: mode; model: ["system_proxy", "local", "tun", "transparent"] }
       ComboBox { id: core; model: ["auto", "sing-box", "xray"] }
       TextField { id: port; placeholderText: "Local proxy port"; inputMethodHints: Qt.ImhDigitsOnly }
+      TextField { id: retention; placeholderText: "Health result retention (hours)"; inputMethodHints: Qt.ImhDigitsOnly }
       CheckBox { id: dns; text: "DNS leak protection" }
       CheckBox { id: lan; text: "Bypass LAN" }
     }
-    onAccepted: if (root.rpc) root.rpc.call("settings.update", { settings: { connectionMode: mode.currentText, preferredCore: core.currentText, localPort: Number(port.text), killSwitch: false, dnsLeakProtection: dns.checked, lanBypass: lan.checked } }, function(result, error) {
+    onAccepted: if (root.rpc) root.rpc.call("settings.update", { settings: { connectionMode: mode.currentText, preferredCore: core.currentText, localPort: Number(port.text), healthRetentionHours: Number(retention.text), killSwitch: false, dnsLeakProtection: dns.checked, lanBypass: lan.checked } }, function(result, error) {
       root.message = error ? error.message : "Settings saved"
       if (error) settings.open()
     })
