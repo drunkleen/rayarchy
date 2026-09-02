@@ -215,7 +215,7 @@ Item {
       CheckBox { id: dns; text: "DNS leak protection" }
       CheckBox { id: lan; text: "Bypass LAN" }
     }
-    onAccepted: { var hours = Number(retention.text); if (!Number.isInteger(hours) || hours < 1 || hours > 720) { root.message = "Health retention must be between 1 and 720 hours"; settings.open(); return } if (root.rpc) root.rpc.call("settings.update", { settings: { connectionMode: mode.currentText, preferredCore: core.currentText, localPort: Number(port.text), healthRetentionHours: hours, killSwitch: false, dnsLeakProtection: dns.checked, lanBypass: lan.checked } }, function(result, error) {
+    onAccepted: { var localPort = Number(port.text); var hours = Number(retention.text); if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535) { root.message = "Local proxy port must be between 1 and 65535"; settings.open(); return } if (!Number.isInteger(hours) || hours < 1 || hours > 720) { root.message = "Health retention must be between 1 and 720 hours"; settings.open(); return } if (root.rpc) root.rpc.call("settings.update", { settings: { connectionMode: mode.currentText, preferredCore: core.currentText, localPort: localPort, healthRetentionHours: hours, killSwitch: false, dnsLeakProtection: dns.checked, lanBypass: lan.checked } }, function(result, error) {
       root.message = error ? error.message : "Settings saved"
       if (error) settings.open()
     }) }
