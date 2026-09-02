@@ -47,12 +47,22 @@ Item {
       if (!error) root.refresh()
     })
   }
+  function refreshStatus() {
+    if (!root.rpc || !root.rpc.connected) return
+    root.rpc.call("system.status", {}, function(result, error) {
+      if (!error) {
+        root.connected = !!result.connected
+        if (result.profileId) root.selectedId = result.profileId
+      }
+    })
+  }
   Component.onCompleted: root.refresh()
   Connections { target: root.rpc; function onConnectedChanged() { if (root.rpc.connected) root.refresh() } }
+  Timer { interval: 2000; repeat: true; running: root.visible; triggeredOnStart: true; onTriggered: root.refreshStatus() }
   Rectangle { anchors.fill: parent; color: Color.background }
   Column {
     anchors.fill: parent; anchors.margins: 18; spacing: 12
-    Row { spacing: 12; Text { text: "Rayarchy"; color: Color.foreground; font.bold: true; font.pixelSize: 22 } Button { text: root.connected ? "Disconnect" : "Connect"; enabled: root.selectedId !== ""; onClicked: if (root.rpc) root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : { profileId: root.selectedId }, function(result, error) { if (!error) root.connected = !root.connected }) } }
+    Row { spacing: 12; Text { text: "Rayarchy"; color: Color.foreground; font.bold: true; font.pixelSize: 22 } Button { text: root.connected ? "Disconnect" : "Connect"; enabled: root.selectedId !== "" || root.connected; onClicked: if (root.rpc) root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : { profileId: root.selectedId }, function(result, error) { if (error) { root.message = error.message || "Connection failed" } else { root.message = root.connected ? "Disconnected" : "Connected"; root.refreshStatus() } }) } }
     TextField { width: parent.width; placeholderText: "Search profiles…"; onTextChanged: { root.query = text; root.refresh() } }
     Row {
       spacing: 8
