@@ -476,7 +476,9 @@ impl Daemon {
                     (name, selected_core, db.settings.local_port, health)
                 };
                 let last_ip = self.last_ip.lock().await.clone();
-                serde_json::json!({"connected": profile_id.is_some(), "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "lastHealth": last_health, "lastIp": last_ip, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
+                let connecting =
+                    profile_id.is_none() && self.child_pid.load(Ordering::Relaxed) != 0;
+                serde_json::json!({"connected": profile_id.is_some(), "connecting": connecting, "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "lastHealth": last_health, "lastIp": last_ip, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
             }
             "system.capabilities" => {
                 let settings = self.db.lock().await.settings.clone();
