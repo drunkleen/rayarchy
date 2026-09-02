@@ -234,7 +234,7 @@ Item {
     onOpened: if (root.rpc) root.rpc.call("settings.get", {}, function(result, error) {
       if (!error) {
         settings.values = result || {}
-        mode.currentIndex = ["system_proxy", "local", "tun", "transparent"].indexOf(settings.values.connectionMode)
+        mode.currentIndex = Math.max(0, ["system_proxy", "local"].indexOf(settings.values.connectionMode))
         core.currentIndex = ["auto", "sing-box", "xray"].indexOf(settings.values.preferredCore)
         port.text = String(settings.values.localPort || 1080)
         retention.text = String(settings.values.healthRetentionHours || 24)
@@ -244,7 +244,9 @@ Item {
     })
     contentItem: Column {
       spacing: 8
-      ComboBox { id: mode; model: ["system_proxy", "local", "tun", "transparent"] }
+      Text { text: "Connection modes available in this build"; color: Color.foreground }
+      ComboBox { id: mode; model: ["system_proxy", "local"] }
+      Text { text: "TUN and transparent routing require a future privileged helper."; color: "#efb06a"; wrapMode: Text.WordWrap }
       ComboBox { id: core; model: ["auto", "sing-box", "xray"] }
       TextField { id: port; placeholderText: "Local proxy port"; inputMethodHints: Qt.ImhDigitsOnly }
       TextField { id: retention; placeholderText: "Health result retention (hours)"; inputMethodHints: Qt.ImhDigitsOnly }
