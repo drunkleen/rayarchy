@@ -38,6 +38,14 @@ async fn main() -> anyhow::Result<()> {
                     .await,
             );
         }
+        "bulk-proxy" => {
+            let ids = args.map(serde_json::Value::String).collect::<Vec<_>>();
+            print_json(
+                daemon
+                    .dispatch("test.bulk.proxy", serde_json::json!({"profileIds":ids}))
+                    .await,
+            );
+        }
         "diagnostics" => {
             print_json(
                 daemon
@@ -62,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         "help" | "--help" | "-h" => {
-            println!("rayarchy [status|profiles|connect ID|disconnect|ip|history|bulk ID...|diagnostics|validate ID|import URI]")
+            println!("rayarchy [status|profiles|connect ID|disconnect|ip|history|bulk ID...|bulk-proxy ID...|diagnostics|validate ID|import URI]")
         }
         command => {
             eprintln!("unknown command: {command}");
