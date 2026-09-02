@@ -16,6 +16,8 @@ struct Database {
     profiles: Vec<Profile>,
     subscriptions: Vec<Subscription>,
     routing: Vec<RoutingRule>,
+    #[serde(default)]
+    test_history: Vec<serde_json::Value>,
     settings: Settings,
 }
 
@@ -150,6 +152,31 @@ impl Daemon {
             }
             "system.capabilities" => {
                 serde_json::json!({"xray":command_exists("xray"),"singBox":command_exists("sing-box"),"systemProxy":true,"tun":false})
+            }
+            "test.history" => {
+                serde_json::to_value(&self.db.lock().await.test_history).unwrap_or_default()
+            }
+            "test.tcp" => {
+                let host = params["host"].as_str().unwrap_or("www.google.com");
+                let port = params["port"].as_u64().unwrap_or(443) as u16;
+                let start = std::time::Instant::now();
+                let result = tokio::net::TcpStream::connect((host, port)).await;
+                let row = serde_json::json!({"kind":"tcp","host":host,"port":port,"ok":result.is_ok(),"latencyMs":start.elapsed().as_millis()});
+                self.record_test(row.clone()).await;
+                row
+            }
+            "test.proxy" => {
+                let port = self.db.lock().await.settings.local_port;
+                let start = std::time::Instant::now();
+                let result = tokio::process::Command::new("curl")
+                    .args(["-fsS", "-o", "/dev/null", "--max-time", "8", "--proxy"])
+                    .arg(format!("http://127.0.0.1:{port}"))
+                    .arg("https://www.gstatic.com/generate_204")
+                    .status()
+                    .await;
+                let row = serde_json::json!({"kind":"proxy","ok":result.map(|s|s.success()).unwrap_or(false),"latencyMs":start.elapsed().as_millis()});
+                self.record_test(row.clone()).await;
+                row
             }
             "routing.list" => {
                 serde_json::to_value(&self.db.lock().await.routing).unwrap_or_default()
@@ -413,6 +440,16 @@ impl Daemon {
             }
             _ => serde_json::json!({"error":"method not found"}),
         }
+    }
+
+    async fn record_test(&self, result: serde_json::Value) {
+        let mut db = self.db.lock().await;
+        db.test_history.push(result);
+        if db.test_history.len() > 100 {
+            db.test_history.remove(0);
+        }
+        drop(db);
+        let _ = self.save().await;
     }
 }
 
