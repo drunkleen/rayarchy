@@ -1096,6 +1096,8 @@ impl Daemon {
             }
             "profile.connect.cancel" => {
                 let _ = self.disconnect_profile().await;
+                self.log("connection attempt cancelled by user".to_string())
+                    .await;
                 serde_json::json!({"ok":true,"state":"DISCONNECTED"})
             }
             "profile.connect" | "profile.switch" => {
