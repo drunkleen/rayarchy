@@ -177,6 +177,7 @@ pub struct Daemon {
     proxy_backup: Mutex<Option<sysproxy::Backup>>,
     logs: Mutex<Vec<String>>,
     bulk_cancel: AtomicBool,
+    last_ip: Mutex<Option<serde_json::Value>>,
 }
 impl Daemon {
     pub fn new(path: PathBuf) -> anyhow::Result<Arc<Self>> {
@@ -195,6 +196,7 @@ impl Daemon {
             proxy_backup: Mutex::new(None),
             logs: Mutex::new(Vec::new()),
             bulk_cancel: AtomicBool::new(false),
+            last_ip: Mutex::new(None),
         }))
     }
     async fn save(&self) -> anyhow::Result<()> {
@@ -473,7 +475,8 @@ impl Daemon {
                     });
                     (name, selected_core, db.settings.local_port, health)
                 };
-                serde_json::json!({"connected": profile_id.is_some(), "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "lastHealth": last_health, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
+                let last_ip = self.last_ip.lock().await.clone();
+                serde_json::json!({"connected": profile_id.is_some(), "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "lastHealth": last_health, "lastIp": last_ip, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
             }
             "system.capabilities" => {
                 let settings = self.db.lock().await.settings.clone();
@@ -677,7 +680,9 @@ impl Daemon {
                     .filter(|o| o.status.success())
                     .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                     .filter(|s| !s.is_empty());
-                serde_json::json!({"proxyIp":proxy_ip,"directIp":direct_ip,"protected":proxy_ip.is_some() && proxy_ip != direct_ip})
+                let row = serde_json::json!({"proxyIp":proxy_ip,"directIp":direct_ip,"protected":proxy_ip.is_some() && proxy_ip != direct_ip});
+                *self.last_ip.lock().await = Some(row.clone());
+                row
             }
             "test.speed" => {
                 let port = self.db.lock().await.settings.local_port;
