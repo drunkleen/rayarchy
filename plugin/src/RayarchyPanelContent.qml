@@ -182,7 +182,7 @@ Item {
       }
     }
     Button { text: "Add profile"; onClicked: addDialog.open() }
-    Button { text: "Subscriptions"; Accessible.name: "Manage subscriptions"; onClicked: { root.refreshSubscriptions(); subscriptions.open() } }
+    Button { text: "Subscriptions"; Accessible.name: "Manage subscriptions"; onClicked: { subscriptionManager.open() } }
     Button { text: "Subscription status"; onClicked: { root.rpc.call("subscription.list", {}, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); if (!error) root.refreshSubscriptions(); subscriptionStatusLoader.item.open() }) } }
     Button { text: "Refresh history"; onClicked: { root.refreshSubscriptions(); subscriptionHistoryView.open() } }
     Button { text: root.subscriptionRefreshing ? "Refreshing subscriptions…" : "Refresh all subscriptions"; Accessible.name: "Refresh all subscriptions"; enabled: !root.subscriptionRefreshing; onClicked: refreshAllSubscriptions() }
@@ -223,6 +223,7 @@ Item {
   }
   Dialog { id: subscriptionHistory; modal: true; title: "Subscription refresh history"; standardButtons: Dialog.Close; contentItem: ListView { width: 560; height: Math.min(360, Math.max(80, subscriptions.items.length * 54)); model: subscriptions.items; delegate: Column { width: parent.width; spacing: 2; Text { text: modelData.name; color: Color.foreground; font.bold: true } Text { text: modelData.lastRefreshAt ? "Last attempt: " + new Date(modelData.lastRefreshAt * 1000).toLocaleString() : "Never refreshed"; color: Qt.darker(Color.foreground, 1.4) } Text { visible: !!modelData.lastError; text: "Error: " + modelData.lastError; color: "#ef6a6a" } } } }
   SubscriptionHistoryView { id: subscriptionHistoryView; subscriptions: subscriptions.items }
+  SubscriptionManager { id: subscriptionManager; rpc: root.rpc }
   Dialog { id: subEdit; modal: true; title: "Edit subscription"; standardButtons: Dialog.Save | Dialog.Cancel; contentItem: Column { spacing: 8; TextField { id: subEditId; visible: false } TextField { id: subEditName; placeholderText: "Name" } TextField { id: subEditUrl; placeholderText: "https://example/subscribe" } ComboBox { id: subEditAuto; model: ["off", "startup", "daily", "every6_hours"] } } onAccepted: root.rpc.call("subscription.update", { subscription:{id:subEditId.text,name:subEditName.text,url:subEditUrl.text,enabled:true,autoUpdate:subEditAuto.currentText} }, function(result,error) { if (error) root.message = error.message; else showSuccess("Subscription saved"); if (!error) { subEdit.close(); subscriptions.open() } }) }
   Dialog {
     id: settings
