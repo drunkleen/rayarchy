@@ -65,6 +65,17 @@ Dialog {
                     })
                 }
                 Button {
+                    text: "Edit"
+                    Accessible.name: "Edit " + modelData.name
+                    onClicked: {
+                        editId.text = modelData.id;
+                        editName.text = modelData.name;
+                        editUrl.text = modelData.url;
+                        editAuto.currentIndex = ["off", "startup", "daily", "every6_hours"].indexOf(modelData.autoUpdate || "daily");
+                        edit.open();
+                    }
+                }
+                Button {
                     text: "Delete"
                     Accessible.name: "Delete " + modelData.name
                     onClicked: root.rpc.call("subscription.delete", {
@@ -109,5 +120,48 @@ Dialog {
                 }
             })
         }
+    }
+
+    Dialog {
+        id: edit
+        modal: true
+        title: "Edit subscription"
+        standardButtons: Dialog.Save | Dialog.Cancel
+        contentItem: Column {
+            spacing: 8
+            TextField {
+                id: editId
+                visible: false
+            }
+            TextField {
+                id: editName
+                placeholderText: "Name"
+            }
+            TextField {
+                id: editUrl
+                placeholderText: "https://example/subscribe"
+            }
+            ComboBox {
+                id: editAuto
+                model: ["off", "startup", "daily", "every6_hours"]
+            }
+        }
+        onAccepted: root.rpc.call("subscription.update", {
+            subscription: {
+                id: editId.text,
+                name: editName.text,
+                url: editUrl.text,
+                enabled: true,
+                autoUpdate: editAuto.currentText
+            }
+        }, function (result, error) {
+            if (error)
+                root.message = error.message;
+            else {
+                root.message = "Subscription saved";
+                edit.close();
+                root.load();
+            }
+        })
     }
 }
