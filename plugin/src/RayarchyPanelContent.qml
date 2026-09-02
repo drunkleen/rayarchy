@@ -11,6 +11,7 @@ Item {
   property string groupFilter: ""
   property string sortMode: "manual"
   property bool favoritesOnly: false
+  property bool healthOnly: false
   property bool connected: false
   property string selectedId: ""
   property string message: ""
@@ -26,7 +27,7 @@ Item {
     })
     root.rpc.call("profile.list", { query: root.query, group: root.groupFilter, sort: root.sortMode, favoritesOnly: root.favoritesOnly }, function(result, error) {
       if (error) root.message = error.message
-      else root.profiles = result || []
+      else root.profiles = root.healthOnly ? (result || []).filter(function(profile) { return profile.lastTest && profile.lastTest.ok }) : (result || [])
     })
     root.rpc.call("system.status", {}, function(result, error) {
       if (!error) { root.connected = !!result.connected; root.selectedId = result.profileId || root.selectedId }
@@ -127,6 +128,7 @@ Item {
       ComboBox { id: groupPicker; model: root.groups(); onActivated: { root.groupFilter = currentIndex === 0 ? "" : currentText; root.refresh() } }
       ComboBox { model: ["manual", "name", "server", "favorites"]; onActivated: { root.sortMode = currentText; root.refresh() } }
       CheckBox { text: "Favorites"; checked: root.favoritesOnly; onToggled: { root.favoritesOnly = checked; root.refresh() } }
+      CheckBox { text: "Healthy only"; checked: root.healthOnly; onToggled: { root.healthOnly = checked; root.refresh() } }
     }
     Text { visible: root.profiles.length === 0; text: "No profiles yet. Add a profile or subscription to begin."; color: Color.foreground }
     Text { visible: root.message !== ""; text: root.message; color: Color.accent; width: parent.width; wrapMode: Text.WordWrap }
