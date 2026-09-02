@@ -156,6 +156,25 @@ pub fn apply_dns(config: &mut serde_json::Value, core: Core, protected: bool) {
     }
 }
 
+pub fn apply_lan_bypass(config: &mut serde_json::Value, core: Core, enabled: bool) {
+    if !enabled {
+        return;
+    }
+    match core {
+        Core::SingBox => {
+            if let Some(rules) = config["route"]["rules"].as_array_mut() {
+                rules.push(serde_json::json!({"ip_cidr":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","169.254.0.0/16","fc00::/7","fe80::/10"],"outbound":"direct"}));
+            }
+        }
+        Core::Xray => {
+            if let Some(rules) = config["routing"]["rules"].as_array_mut() {
+                rules.push(serde_json::json!({"type":"field","ip":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","169.254.0.0/16","fc00::/7","fe80::/10"],"outboundTag":"direct"}));
+            }
+        }
+        Core::Auto => {}
+    }
+}
+
 pub fn apply_rules(config: &mut serde_json::Value, core: Core, rules: &[RoutingRule]) {
     let enabled = rules.iter().filter(|r| r.enabled);
     match core {
@@ -326,5 +345,21 @@ mod tests {
         let mut config = build(&profile, Core::SingBox, "127.0.0.1", 1080);
         apply_dns(&mut config, Core::SingBox, true);
         assert_eq!(config["dns"]["final"], "rayarchy-dns");
+    }
+
+    #[test]
+    fn lan_bypass_compiles_private_networks() {
+        let profile = Profile {
+            server: Some("lan.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        let mut config = build(&profile, Core::SingBox, "127.0.0.1", 1080);
+        apply_lan_bypass(&mut config, Core::SingBox, true);
+        assert!(config["route"]["rules"][0]["ip_cidr"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "192.168.0.0/16"));
     }
 }

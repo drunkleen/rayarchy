@@ -75,6 +75,40 @@ fn validate_profile(profile: &Profile) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_rule(rule: &RoutingRule) -> Result<(), String> {
+    if rule.name.trim().is_empty() || rule.value.trim().is_empty() {
+        return Err("routing rule name and value are required".into());
+    }
+    if !matches!(
+        rule.match_type.as_str(),
+        "domain" | "domain_suffix" | "domain_keyword" | "cidr" | "ip"
+    ) {
+        return Err("unsupported routing match type".into());
+    }
+    if !matches!(rule.action.as_str(), "proxy" | "direct" | "block") {
+        return Err("unsupported routing action".into());
+    }
+    if matches!(rule.match_type.as_str(), "cidr" | "ip") {
+        let (address, prefix) = rule
+            .value
+            .split_once('/')
+            .ok_or("CIDR rule must include a prefix")?;
+        address
+            .parse::<std::net::IpAddr>()
+            .map_err(|_| "invalid CIDR address")?;
+        let max = if address.contains(':') { 128 } else { 32 };
+        if prefix
+            .parse::<u8>()
+            .ok()
+            .filter(|value| *value <= max)
+            .is_none()
+        {
+            return Err("invalid CIDR prefix".into());
+        }
+    }
+    Ok(())
+}
+
 async fn validate_core_config(
     core: rayarchy_core::protocol::Core,
     path: &std::path::Path,
@@ -283,6 +317,7 @@ impl Daemon {
         let mut config = configgen::build(&profile, core, "127.0.0.1", settings.local_port);
         configgen::apply_rules(&mut config, core, &rules);
         configgen::apply_dns(&mut config, core, settings.dns_leak_protection);
+        configgen::apply_lan_bypass(&mut config, core, settings.lan_bypass);
         if let Some(parent) = self.config_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
@@ -420,6 +455,7 @@ impl Daemon {
                 let rules = self.db.lock().await.routing.clone();
                 configgen::apply_rules(&mut config, core, &rules);
                 configgen::apply_dns(&mut config, core, settings.dns_leak_protection);
+                configgen::apply_lan_bypass(&mut config, core, settings.lan_bypass);
                 let path = std::env::temp_dir()
                     .join(format!("rayarchy-validate-{}.json", uuid::Uuid::new_v4()));
                 if let Err(error) =
@@ -569,6 +605,9 @@ impl Daemon {
                     Ok(v) => v,
                     Err(e) => return serde_json::json!({"error":e.to_string()}),
                 };
+                if let Err(error) = validate_rule(&rule) {
+                    return serde_json::json!({"error":error});
+                }
                 let id = rule.id;
                 self.db.lock().await.routing.push(rule);
                 let _ = self.save().await;
