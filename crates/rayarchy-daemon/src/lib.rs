@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::{
     path::PathBuf,
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
     },
 };
@@ -75,6 +75,7 @@ pub struct Daemon {
     config_path: PathBuf,
     proxy_backup: Mutex<Option<sysproxy::Backup>>,
     logs: Mutex<Vec<String>>,
+    bulk_cancel: AtomicBool,
 }
 impl Daemon {
     pub fn new(path: PathBuf) -> anyhow::Result<Arc<Self>> {
@@ -92,6 +93,7 @@ impl Daemon {
             config_path: std::env::temp_dir().join("rayarchy/config.json"),
             proxy_backup: Mutex::new(None),
             logs: Mutex::new(Vec::new()),
+            bulk_cancel: AtomicBool::new(false),
         }))
     }
     async fn save(&self) -> anyhow::Result<()> {
@@ -398,10 +400,14 @@ impl Daemon {
                 row
             }
             "test.bulk" => {
+                self.bulk_cancel.store(false, Ordering::Relaxed);
                 let ids = params["profileIds"].as_array().cloned().unwrap_or_default();
                 let profiles = self.db.lock().await.profiles.clone();
                 let mut results = Vec::new();
                 for value in ids.into_iter().take(100) {
+                    if self.bulk_cancel.load(Ordering::Relaxed) {
+                        break;
+                    }
                     let id = value.as_str().and_then(|s| uuid::Uuid::parse_str(s).ok());
                     let Some(profile) = profiles.iter().find(|p| Some(p.id) == id) else {
                         continue;
@@ -420,7 +426,11 @@ impl Daemon {
                     self.record_test(row.clone()).await;
                     results.push(row);
                 }
-                serde_json::json!({"results":results})
+                serde_json::json!({"results":results,"cancelled":self.bulk_cancel.load(Ordering::Relaxed)})
+            }
+            "test.bulk.cancel" => {
+                self.bulk_cancel.store(true, Ordering::Relaxed);
+                serde_json::json!({"ok":true})
             }
             "test.proxy" => {
                 let port = self.db.lock().await.settings.local_port;
