@@ -502,6 +502,22 @@ impl Daemon {
             "test.history" => {
                 serde_json::to_value(&self.db.lock().await.test_history).unwrap_or_default()
             }
+            "test.history.clear" => {
+                let id = params["profileId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let mut db = self.db.lock().await;
+                let id_text = id.map(|profile_id| profile_id.to_string());
+                db.test_history.retain(|row| match id_text.as_deref() {
+                    Some(profile_id) => {
+                        row.get("profileId").and_then(|v| v.as_str()) != Some(profile_id)
+                    }
+                    None => false,
+                });
+                drop(db);
+                let _ = self.save().await;
+                serde_json::json!({"ok":true})
+            }
             "test.tcp" => {
                 let host = params["host"].as_str().unwrap_or("www.google.com");
                 let port = params["port"].as_u64().unwrap_or(443) as u16;
@@ -1234,6 +1250,31 @@ mod tests {
         let listed = daemon.dispatch("profile.list", serde_json::json!({})).await;
         assert_eq!(listed[0]["lastTest"]["ok"], true);
         assert_eq!(listed[0]["lastTest"]["latencyMs"], 42);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn clearing_profile_health_removes_only_that_profile_history() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let first = uuid::Uuid::new_v4();
+        let second = uuid::Uuid::new_v4();
+        daemon
+            .record_test(serde_json::json!({"profileId":first,"ok":true}))
+            .await;
+        daemon
+            .record_test(serde_json::json!({"profileId":second,"ok":true}))
+            .await;
+        assert_eq!(
+            daemon
+                .dispatch("test.history.clear", serde_json::json!({"profileId":first}))
+                .await["ok"],
+            true
+        );
+        let history = daemon.dispatch("test.history", serde_json::json!({})).await;
+        assert_eq!(history.as_array().unwrap().len(), 1);
+        assert_eq!(history[0]["profileId"], second.to_string());
         let _ = std::fs::remove_file(path);
     }
 
