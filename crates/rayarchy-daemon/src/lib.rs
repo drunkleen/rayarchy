@@ -397,6 +397,29 @@ impl Daemon {
                 self.record_test(row.clone()).await;
                 row
             }
+            "test.bulk" => {
+                let ids = params["profileIds"].as_array().cloned().unwrap_or_default();
+                let profiles = self.db.lock().await.profiles.clone();
+                let mut results = Vec::new();
+                for value in ids.into_iter().take(100) {
+                    let id = value.as_str().and_then(|s| uuid::Uuid::parse_str(s).ok());
+                    let Some(profile) = profiles.iter().find(|p| Some(p.id) == id) else {
+                        continue;
+                    };
+                    let host = profile.server.clone().unwrap_or_default();
+                    let port = profile.port.unwrap_or(443);
+                    let start = std::time::Instant::now();
+                    let ok = tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        tokio::net::TcpStream::connect((host.as_str(), port)),
+                    )
+                    .await
+                    .map(|r| r.is_ok())
+                    .unwrap_or(false);
+                    results.push(serde_json::json!({"profileId":profile.id,"name":profile.name,"host":host,"port":port,"ok":ok,"latencyMs":start.elapsed().as_millis()}));
+                }
+                serde_json::json!({"results":results})
+            }
             "test.proxy" => {
                 let port = self.db.lock().await.settings.local_port;
                 let start = std::time::Instant::now();
