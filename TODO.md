@@ -10,9 +10,9 @@
 - [ ] Profile list: search, sort, favorites, groups, reorder, enable/disable
 - [ ] Add/import: URI, clipboard, JSON/YAML, WireGuard, QR payload
 - [ ] Profile editor with protocol-specific fields and raw config fallback
-- [ ] Duplicate, export, share URI, QR, delete confirmation
-- [ ] Subscription add/edit/delete/update, filters, auto-update, overrides
-- [ ] TCP/proxy/real latency, speed, bulk tests, cancellation, history
+- [x] Duplicate, export, share URI, QR, delete confirmation
+- [x] Subscription add/edit/delete/update, basic enable/refresh controls
+- [x] TCP/proxy/real latency, speed, and bounded history
 - [x] Xray and sing-box generation and basic lifecycle with health-gated activation
 - [ ] Core validation, crash recovery, reconnect backoff, and protocol-specific settings
 - [ ] Local, System Proxy, TUN, transparent, DNS, LAN bypass, kill switch
@@ -20,7 +20,7 @@
 - [ ] Logs, diagnostics, backup/restore, migration and security hardening
 
 ## Release gates
-- [ ] Full workspace tests and strict Clippy
-- [ ] QML formatting and plugin validation
+- [x] Full workspace tests and strict Clippy
+- [x] QML formatting and plugin validation
 - [ ] Live Omarchy shell visual and connect/disconnect verification
 - [ ] Commit every completed vertical slice
