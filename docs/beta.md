@@ -25,3 +25,5 @@ connection until an outbound health check succeeds.
 For upgrades from an older checkout, run `./setup.sh` again. If an older
 `rayarchy` binary in `/usr/local/bin` shadows the plugin CLI, invoke the
 plugin-owned binary explicitly as `~/.local/bin/rayarchy`.
+
+Profile lists use one Open action per row; diagnostics, editing, ordering, enablement, and deletion are grouped in the profile details dialog.

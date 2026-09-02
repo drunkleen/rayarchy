@@ -601,25 +601,30 @@ Item {
             root.selectedId = root.profiles[currentIndex].id
         delegate: Rectangle {
             width: ListView.view.width
-            height: 58
-            color: "transparent"
+            height: 76
+            color: root.selectedId === modelData.id ? Qt.alpha(Color.accent, 0.10) : "transparent"
             Accessible.name: modelData.name + ", " + (modelData.protocol || "profile") + (modelData.server ? ", " + modelData.server : "")
             border.color: root.selectedId === modelData.id ? Color.accent : (ListView.view.activeFocus ? Qt.lighter(Color.foreground, 1.2) : Color.foreground)
             border.width: root.selectedId === modelData.id ? 2 : 1
             Row {
                 anchors.fill: parent
                 anchors.margins: 8
-                spacing: 10
+                spacing: 12
                 Column {
-                    width: parent.width - 230
+                    width: Math.max(120, parent.width - openButton.implicitWidth - 12)
+                    spacing: 2
                     Text {
-                        text: modelData.name
+                        text: (modelData.favorite ? "★  " : "") + modelData.name
                         color: Color.foreground
+                        font.bold: true
                         elide: Text.ElideRight
+                        width: parent.width
                     }
                     Text {
                         text: (modelData.group ? modelData.group + " • " : "") + (modelData.server || "") + (modelData.port ? ":" + modelData.port : "")
                         color: Qt.darker(Color.foreground, 1.5)
+                        elide: Text.ElideRight
+                        width: parent.width
                     }
                     Text {
                         property var health: root.bulkResults.find(function (r) {
@@ -628,49 +633,18 @@ Item {
                         visible: health !== undefined
                         text: health && health.ok ? "✓ Verified • " + health.latencyMs + " ms" : "✗ Failed • " + ((health && health.error) || "health check failed")
                         color: health && health.ok ? "#74d99f" : "#ef6a6a"
+                        elide: Text.ElideRight
+                        width: parent.width
                     }
                 }
                 Button {
-                    text: modelData.favorite ? "★" : "☆"
-                    onClicked: root.rpc.call("profile.favorite", {
-                        profileId: modelData.id,
-                        favorite: !modelData.favorite
-                    }, function (result, error) {
-                        root.message = error ? error.message : "";
-                        if (!error)
-                            root.refresh();
-                    })
-                }
-                Button {
-                    text: "↑"
-                    enabled: root.sortMode === "manual" && root.query === "" && root.groupFilter === "" && !root.favoritesOnly
-                    onClicked: root.moveProfile(modelData.id, -1)
-                }
-                Button {
-                    text: "↓"
-                    enabled: root.sortMode === "manual" && root.query === "" && root.groupFilter === "" && !root.favoritesOnly
-                    onClicked: root.moveProfile(modelData.id, 1)
-                }
-                Button {
-                    text: "Use"
-                    Accessible.name: "Select " + modelData.name
-                    onClicked: root.selectedId = modelData.id
-                }
-                Button {
-                    text: modelData.enabled ? "On" : "Off"
-                    onClicked: root.rpc.call("profile.enable", {
-                        profileId: modelData.id,
-                        enabled: !modelData.enabled
-                    }, function (result, error) {
-                        root.message = error ? error.message : "";
-                        if (!error)
-                            root.refresh();
-                    })
-                }
-                Button {
-                    text: "•••"
+                    id: openButton
+                    text: "Open"
                     Accessible.name: "Open actions for " + modelData.name
-                    onClicked: details.open()
+                    onClicked: {
+                        root.selectedId = modelData.id;
+                        details.open();
+                    }
                 }
             }
             Dialog {
@@ -688,6 +662,43 @@ Item {
                         text: modelData.lastTest ? (modelData.lastTest.ok ? "Verified " + modelData.lastTest.latencyMs + " ms • " + new Date(Number(modelData.lastTest.timestamp || 0) * 1000).toLocaleString() : "Last health check failed • " + (modelData.lastTest.error || "unknown error")) : "No recent verified health result"
                         color: modelData.lastTest && modelData.lastTest.ok ? "#74d99f" : "#efb06a"
                         wrapMode: Text.WordWrap
+                    }
+                    Row {
+                        spacing: 8
+                        Button {
+                            text: modelData.enabled ? "Enabled" : "Disabled"
+                            onClicked: root.rpc.call("profile.enable", {
+                                profileId: modelData.id,
+                                enabled: !modelData.enabled
+                            }, function (result, error) {
+                                root.message = error ? error.message : "";
+                                if (!error)
+                                    root.refresh();
+                            })
+                        }
+                        Button {
+                            text: modelData.favorite ? "★ Favorite" : "☆ Favorite"
+                            onClicked: root.rpc.call("profile.favorite", {
+                                profileId: modelData.id,
+                                favorite: !modelData.favorite
+                            }, function (result, error) {
+                                root.message = error ? error.message : "";
+                                if (!error)
+                                    root.refresh();
+                            })
+                        }
+                    }
+                    Row {
+                        spacing: 8
+                        visible: root.sortMode === "manual" && root.query === "" && root.groupFilter === "" && !root.favoritesOnly
+                        Button {
+                            text: "Move up"
+                            onClicked: root.moveProfile(modelData.id, -1)
+                        }
+                        Button {
+                            text: "Move down"
+                            onClicked: root.moveProfile(modelData.id, 1)
+                        }
                     }
                     Button {
                         text: root.diagnosticRunning ? "Testing…" : "Re-test this profile"
