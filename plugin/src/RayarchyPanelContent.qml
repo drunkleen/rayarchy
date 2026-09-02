@@ -17,6 +17,7 @@ Item {
   property string subscriptionSummary: ""
   property var bulkResults: []
   property string bulkSortMode: "fastest"
+  property bool subscriptionRefreshing: false
   ProtocolEditor { id: structuredEditor; rpc: root.rpc; onSaved: root.refresh() }
   function refresh() {
     if (!root.rpc) return
@@ -59,6 +60,19 @@ Item {
   function showSuccess(text) {
     root.message = text
     settingsMessageTimer.restart()
+  }
+  function refreshAllSubscriptions() {
+    if (!root.rpc || root.subscriptionRefreshing) return
+    root.subscriptionRefreshing = true
+    var pending = subscriptions.items.slice()
+    var updated = 0
+    function next() {
+      if (pending.length === 0) { root.subscriptionRefreshing = false; showSuccess("Subscriptions refreshed (" + updated + " profiles updated)"); root.refresh(); return }
+      var item = pending.shift()
+      root.message = "Refreshing " + item.name + "…"
+      root.rpc.call("subscription.refresh", { subscriptionId: item.id }, function(result, error) { if (error) { root.subscriptionRefreshing = false; root.message = error.message; return } updated += Number(result.updated || 0); next() })
+    }
+    next()
   }
   function moveProfile(profileId, delta) {
     var ids = root.allProfiles.map(function(profile) { return profile.id })
@@ -161,6 +175,7 @@ Item {
     Button { text: "Add profile"; onClicked: addDialog.open() }
     Button { text: "Subscriptions"; onClicked: { root.refreshSubscriptions(); subscriptions.open() } }
     Button { text: "Subscription status"; onClicked: { root.rpc.call("subscription.list", {}, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); if (!error) root.refreshSubscriptions(); subscriptionStatusLoader.item.open() }) } }
+    Button { text: root.subscriptionRefreshing ? "Refreshing subscriptions…" : "Refresh all subscriptions"; enabled: !root.subscriptionRefreshing; onClicked: refreshAllSubscriptions() }
     Button { text: "Bulk TCP test"; onClicked: { root.rpc.call("test.bulk", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); subscriptionStatusLoader.item.open() }) } }
     Button { text: "Test all proxy connections"; onClicked: { root.rpc.call("test.bulk.proxy", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { if (!error) root.bulkResults = result.results || []; subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : root.formatBulkResults(root.bulkResults); subscriptionStatusLoader.item.open() }) } }
     Button { text: "Use best working profile"; enabled: root.bulkResults.some(function(r) { return r.ok }); onClicked: { var candidates = root.bulkResults.filter(function(r) { return r.ok }).sort(function(a, b) { return Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999) }); if (candidates.length) { root.selectedId = candidates[0].profileId; root.message = "Selected " + candidates[0].name + " (" + candidates[0].latencyMs + " ms)" } } }
