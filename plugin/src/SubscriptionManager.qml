@@ -53,6 +53,26 @@ Dialog {
                     color: Qt.darker(Color.foreground, 1.4)
                 }
                 Button {
+                    text: modelData.enabled ? "On" : "Off"
+                    Accessible.name: (modelData.enabled ? "Disable " : "Enable ") + modelData.name
+                    onClicked: root.rpc.call("subscription.update", {
+                        subscription: {
+                            id: modelData.id,
+                            name: modelData.name,
+                            url: modelData.url,
+                            enabled: !modelData.enabled,
+                            autoUpdate: modelData.autoUpdate || "daily",
+                            lastError: modelData.lastError,
+                            lastRefreshAt: modelData.lastRefreshAt
+                        }
+                    }, function (result, error) {
+                        if (error)
+                            root.message = error.message;
+                        else
+                            root.load();
+                    })
+                }
+                Button {
                     text: "Refresh"
                     Accessible.name: "Refresh " + modelData.name
                     onClicked: root.rpc.call("subscription.refresh", {
@@ -73,6 +93,9 @@ Dialog {
                         editId.text = modelData.id;
                         editName.text = modelData.name;
                         editUrl.text = modelData.url;
+                        editEnabled.checked = !!modelData.enabled;
+                        editLastError.text = modelData.lastError || "";
+                        editLastRefresh.text = modelData.lastRefreshAt === undefined || modelData.lastRefreshAt === null ? "" : String(modelData.lastRefreshAt);
                         editAuto.currentIndex = ["off", "startup", "daily", "every6_hours"].indexOf(modelData.autoUpdate || "daily");
                         edit.open();
                     }
@@ -164,9 +187,21 @@ Dialog {
                 id: editUrl
                 placeholderText: "https://example/subscribe"
             }
+            CheckBox {
+                id: editEnabled
+                text: "Enabled"
+            }
             ComboBox {
                 id: editAuto
                 model: ["off", "startup", "daily", "every6_hours"]
+            }
+            TextField {
+                id: editLastError
+                visible: false
+            }
+            TextField {
+                id: editLastRefresh
+                visible: false
             }
         }
         onAccepted: root.rpc.call("subscription.update", {
@@ -174,8 +209,10 @@ Dialog {
                 id: editId.text,
                 name: editName.text,
                 url: editUrl.text,
-                enabled: true,
-                autoUpdate: editAuto.currentText
+                enabled: editEnabled.checked,
+                autoUpdate: editAuto.currentText,
+                lastError: editLastError.text === "" ? null : editLastError.text,
+                lastRefreshAt: editLastRefresh.text === "" ? null : Number(editLastRefresh.text)
             }
         }, function (result, error) {
             if (error)
