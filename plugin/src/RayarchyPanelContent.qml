@@ -340,15 +340,15 @@ Item {
         Button {
             text: "Subscriptions"
             onClicked: {
-                root.currentPage = "profiles";
-                subscriptionManager.open();
+                root.currentPage = "subscriptions";
+                root.refreshSubscriptions();
             }
         }
         Button {
             text: "Settings"
             onClicked: {
-                root.currentPage = "profiles";
-                settings.open();
+                root.currentPage = "settings";
+                settingsPage.load();
             }
         }
         Button {
@@ -432,6 +432,199 @@ Item {
                 visible: text !== ""
                 color: Qt.darker(Color.foreground, 1.45)
                 font.family: Style.font.family
+            }
+        }
+    }
+    Item {
+        id: subscriptionsPage
+        anchors.top: navigation.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 18
+        visible: root.currentPage === "subscriptions"
+        Column {
+            width: parent.width
+            spacing: 12
+            Text {
+                text: "Subscriptions"
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.heading
+                font.bold: true
+            }
+            Text {
+                text: "Manage remote profile sources and refresh schedules."
+                color: Qt.darker(Color.foreground, 1.4)
+                wrapMode: Text.WordWrap
+                width: parent.width
+            }
+            ListView {
+                width: parent.width
+                height: Math.max(120, Math.min(360, subscriptionsPage.height - 190))
+                model: subscriptionManager.items
+                delegate: Rectangle {
+                    width: ListView.view.width
+                    height: 64
+                    color: "transparent"
+                    border.color: Qt.darker(Color.foreground, 1.55)
+                    Column {
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 2
+                        Text {
+                            text: modelData.name
+                            color: Color.foreground
+                            font.bold: true
+                        }
+                        Text {
+                            text: (modelData.enabled ? "Enabled" : "Disabled") + " • " + (modelData.autoUpdate || "daily")
+                            color: Qt.darker(Color.foreground, 1.4)
+                        }
+                        Text {
+                            visible: !!modelData.lastError
+                            text: modelData.lastError || ""
+                            color: "#ef6a6a"
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+                    }
+                }
+            }
+            TextField {
+                id: pageSubName
+                width: parent.width
+                placeholderText: "Subscription name"
+            }
+            TextField {
+                id: pageSubUrl
+                width: parent.width
+                placeholderText: "https://example/subscribe"
+            }
+            Flow {
+                width: parent.width
+                spacing: 8
+                Button {
+                    text: "Add subscription"
+                    enabled: pageSubName.text.trim() !== "" && pageSubUrl.text.trim() !== ""
+                    onClicked: root.rpc.call("subscription.create", {
+                        subscription: {
+                            name: pageSubName.text.trim(),
+                            url: pageSubUrl.text.trim(),
+                            enabled: true,
+                            autoUpdate: "daily"
+                        }
+                    }, function (result, error) {
+                        root.message = error ? error.message : "Subscription added";
+                        if (!error) {
+                            pageSubName.text = "";
+                            pageSubUrl.text = "";
+                            root.refreshSubscriptions();
+                        }
+                    })
+                }
+                Button {
+                    text: "Refresh all"
+                    enabled: !root.subscriptionRefreshing
+                    onClicked: root.refreshAllSubscriptions()
+                }
+            }
+        }
+    }
+    Item {
+        id: settingsPage
+        anchors.top: navigation.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 18
+        visible: root.currentPage === "settings"
+        property var values: ({})
+        function load() {
+            root.rpc.call("settings.get", {}, function (result, error) {
+                if (error) {
+                    root.message = error.message;
+                    return;
+                }
+                settingsPage.values = result || {};
+                pageMode.currentIndex = Math.max(0, ["system_proxy", "local"].indexOf(settingsPage.values.connectionMode));
+                pageCore.currentIndex = Math.max(0, ["auto", "sing-box", "xray"].indexOf(settingsPage.values.preferredCore));
+                pagePort.text = String(settingsPage.values.localPort || 1080);
+                pageRetention.text = String(settingsPage.values.healthRetentionHours || 24);
+                pageDns.checked = !!settingsPage.values.dnsLeakProtection;
+                pageLan.checked = !!settingsPage.values.lanBypass;
+            });
+        }
+        Column {
+            width: parent.width
+            spacing: 12
+            Text {
+                text: "Settings"
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.heading
+                font.bold: true
+            }
+            Text {
+                text: "Connection and safety defaults"
+                color: Qt.darker(Color.foreground, 1.4)
+            }
+            ComboBox {
+                id: pageMode
+                width: parent.width
+                model: ["system_proxy", "local"]
+            }
+            ComboBox {
+                id: pageCore
+                width: parent.width
+                model: ["auto", "sing-box", "xray"]
+            }
+            TextField {
+                id: pagePort
+                width: parent.width
+                placeholderText: "Local proxy port"
+                inputMethodHints: Qt.ImhDigitsOnly
+            }
+            TextField {
+                id: pageRetention
+                width: parent.width
+                placeholderText: "Health retention (hours)"
+                inputMethodHints: Qt.ImhDigitsOnly
+            }
+            CheckBox {
+                id: pageDns
+                text: "DNS leak protection"
+            }
+            CheckBox {
+                id: pageLan
+                text: "Bypass LAN"
+            }
+            Button {
+                text: "Save settings"
+                onClicked: {
+                    var localPort = Number(pagePort.text), hours = Number(pageRetention.text);
+                    if (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535) {
+                        root.message = "Local proxy port must be between 1 and 65535";
+                        return;
+                    }
+                    if (!Number.isInteger(hours) || hours < 1 || hours > 720) {
+                        root.message = "Health retention must be between 1 and 720 hours";
+                        return;
+                    }
+                    root.rpc.call("settings.update", {
+                        settings: {
+                            connectionMode: pageMode.currentText,
+                            preferredCore: pageCore.currentText,
+                            localPort: localPort,
+                            healthRetentionHours: hours,
+                            killSwitch: false,
+                            dnsLeakProtection: pageDns.checked,
+                            lanBypass: pageLan.checked
+                        }
+                    }, function (result, error) {
+                        root.message = error ? error.message : "Settings saved";
+                    });
+                }
             }
         }
     }

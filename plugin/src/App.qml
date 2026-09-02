@@ -39,6 +39,8 @@ Item {
         visible: root.opened
         title: "Rayarchy"
         color: root.background
+        width: Style.space(980)
+        height: Style.space(720)
         implicitWidth: Style.space(980)
         implicitHeight: Style.space(720)
         minimumSize: Qt.size(Style.space(760), Style.space(520))
