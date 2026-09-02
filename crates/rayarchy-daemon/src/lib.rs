@@ -441,7 +441,7 @@ impl Daemon {
             "system.ping" => serde_json::json!({"ok":true}),
             "system.status" => {
                 let profile_id = *self.connected.lock().await;
-                let (profile_name, core, local_port) = {
+                let (profile_name, core, local_port, last_health) = {
                     let db = self.db.lock().await;
                     let name = profile_id.and_then(|id| {
                         db.profiles
@@ -457,9 +457,23 @@ impl Daemon {
                                 configgen::choose_core(profile, db.settings.preferred_core)
                             })
                     });
-                    (name, selected_core, db.settings.local_port)
+                    let health = profile_id.and_then(|id| {
+                        let id = id.to_string();
+                        db.test_history
+                            .iter()
+                            .rev()
+                            .find(|row| {
+                                row.get("profileId").and_then(|v| v.as_str()) == Some(id.as_str())
+                                    && matches!(
+                                        row.get("kind").and_then(|v| v.as_str()),
+                                        Some("proxy") | Some("bulk-proxy")
+                                    )
+                            })
+                            .cloned()
+                    });
+                    (name, selected_core, db.settings.local_port, health)
                 };
-                serde_json::json!({"connected": profile_id.is_some(), "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
+                serde_json::json!({"connected": profile_id.is_some(), "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "lastHealth": last_health, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
             }
             "system.capabilities" => {
                 let settings = self.db.lock().await.settings.clone();
@@ -1781,6 +1795,36 @@ mod tests {
             .dispatch("system.status", serde_json::json!({}))
             .await;
         assert_eq!(status["connected"], false);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn status_includes_latest_profile_health() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Healthy".into(),
+            server: Some("healthy.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        let id = profile.id;
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        *daemon.connected.lock().await = Some(id);
+        daemon
+            .db
+            .lock()
+            .await
+            .test_history
+            .push(serde_json::json!({"kind":"proxy","profileId":id,"ok":true,"latencyMs":42}));
+        let status = daemon
+            .dispatch("system.status", serde_json::json!({}))
+            .await;
+        assert_eq!(status["profileName"], "Healthy");
+        assert_eq!(status["lastHealth"]["latencyMs"], 42);
         let _ = std::fs::remove_file(path);
     }
 

@@ -37,7 +37,7 @@ Item {
       else root.profiles = root.healthOnly ? (result || []).filter(function(profile) { return profile.lastTest && profile.lastTest.ok }) : (result || [])
     })
     root.rpc.call("system.status", {}, function(result, error) {
-      if (!error) { root.connected = !!result.connected; root.selectedId = result.profileId || root.selectedId; root.connectionDetail = result.connected ? ((result.profileName || "Profile") + " • " + (result.core || "core") + " • 127.0.0.1:" + (result.localPort || "")) : "" }
+      if (!error) { root.connected = !!result.connected; root.selectedId = result.profileId || root.selectedId; root.connectionDetail = result.connected ? ((result.profileName || "Profile") + " • " + (result.core || "core") + " • 127.0.0.1:" + (result.localPort || "") + (result.lastHealth && result.lastHealth.ok ? " • verified " + result.lastHealth.latencyMs + " ms" : " • health pending")) : "" }
     })
   }
   function groups() {
@@ -100,7 +100,7 @@ Item {
       if (!error) {
         root.connected = !!result.connected
         if (result.profileId) root.selectedId = result.profileId
-        root.connectionDetail = result.connected ? ((result.profileName || "Profile") + " • " + (result.core || "core") + " • 127.0.0.1:" + (result.localPort || "")) : ""
+        root.connectionDetail = result.connected ? ((result.profileName || "Profile") + " • " + (result.core || "core") + " • 127.0.0.1:" + (result.localPort || "") + (result.lastHealth && result.lastHealth.ok ? " • verified " + result.lastHealth.latencyMs + " ms" : " • health pending")) : ""
       }
     })
   }
