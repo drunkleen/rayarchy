@@ -590,6 +590,21 @@ impl Daemon {
                     .map(|p| serde_json::to_value(p).unwrap_or_default())
                     .unwrap_or_else(|| serde_json::json!({"error":"profile not found"}))
             }
+            "profile.schema" => {
+                let protocol = params["protocol"].as_str().unwrap_or("vless");
+                let fields: &[&str] = match protocol {
+                    "vless" => &["user", "security", "sni", "type", "host", "path"],
+                    "vmess" => &["user", "aid", "security", "tls", "type", "host", "path"],
+                    "trojan" => &["password", "security", "sni", "type", "host", "path"],
+                    "shadowsocks" => &["method", "password"],
+                    "hysteria2" => &["password", "sni", "obfs", "obfs-password"],
+                    "tuic" => &["user", "password", "congestion_control", "sni"],
+                    "wireguard" => &["private_key", "public_key", "local_address", "mtu"],
+                    "socks" | "http" => &["user", "password"],
+                    _ => &[],
+                };
+                serde_json::json!({"protocol":protocol,"fields":fields})
+            }
             "profile.export" => {
                 let id = params["profileId"]
                     .as_str()
@@ -1214,6 +1229,22 @@ mod tests {
             )
             .await;
         assert_eq!(good["ok"], true);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn protocol_schema_lists_required_editor_fields() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let schema = daemon
+            .dispatch("profile.schema", serde_json::json!({"protocol":"vless"}))
+            .await;
+        assert!(schema["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field == "user"));
         let _ = std::fs::remove_file(path);
     }
 
