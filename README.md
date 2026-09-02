@@ -34,3 +34,12 @@ Use **Backup** to export the complete local state as JSON. Restore accepts only
 valid Rayarchy state and refuses while a profile is connected; malformed input
 is rejected without changing the existing database. Keep exported backups
 private because they may contain credentials.
+
+For a repeatable live parser check, build the CLI and run:
+
+```sh
+RAYARCHY_SUBSCRIPTION_URL='https://example.invalid/subscription' \
+  tests/live-subscription.sh
+```
+
+The script keeps the downloaded payload temporary and reports only counts.
