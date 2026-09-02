@@ -93,6 +93,19 @@ pub struct Settings {
     #[serde(default)]
     pub lan_bypass: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutingRule {
+    #[serde(default = "id")]
+    pub id: Uuid,
+    pub name: String,
+    pub match_type: String,
+    pub value: String,
+    pub action: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
 fn default_port() -> u16 {
     1080
 }

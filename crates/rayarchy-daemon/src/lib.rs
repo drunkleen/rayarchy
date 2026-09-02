@@ -1,13 +1,20 @@
-use rayarchy_core::{Profile, Settings, Subscription};
+use rayarchy_core::{Profile, RoutingRule, Settings, Subscription};
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 pub mod configgen;
 pub mod server;
 
+fn command_exists(name: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).any(|dir| dir.join(name).is_file()))
+        .unwrap_or(false)
+}
+
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Database {
     profiles: Vec<Profile>,
     subscriptions: Vec<Subscription>,
+    routing: Vec<RoutingRule>,
     settings: Settings,
 }
 
@@ -114,7 +121,31 @@ impl Daemon {
         match method {
             "system.ping" => serde_json::json!({"ok":true}),
             "system.status" => {
-                serde_json::json!({"connected": self.connected.lock().await.is_some()})
+                serde_json::json!({"connected": self.connected.lock().await.is_some(), "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
+            }
+            "system.capabilities" => {
+                serde_json::json!({"xray":command_exists("xray"),"singBox":command_exists("sing-box"),"systemProxy":true,"tun":false})
+            }
+            "routing.list" => {
+                serde_json::to_value(&self.db.lock().await.routing).unwrap_or_default()
+            }
+            "routing.create" => {
+                let rule: RoutingRule = match serde_json::from_value(params["rule"].clone()) {
+                    Ok(v) => v,
+                    Err(e) => return serde_json::json!({"error":e.to_string()}),
+                };
+                let id = rule.id;
+                self.db.lock().await.routing.push(rule);
+                let _ = self.save().await;
+                serde_json::json!({"ruleId":id})
+            }
+            "routing.delete" => {
+                let id = params["ruleId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                self.db.lock().await.routing.retain(|r| Some(r.id) != id);
+                let _ = self.save().await;
+                serde_json::json!({"ok":true})
             }
             "profile.list" => {
                 serde_json::to_value(&self.db.lock().await.profiles).unwrap_or_default()
