@@ -31,6 +31,11 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
     let user = field("user");
     let password = field("password");
     let method = field("method");
+    let ws_host = if field("host").is_empty() {
+        server.clone()
+    } else {
+        field("host").to_string()
+    };
     let outbound = match core {
         Core::SingBox => {
             let typ = match profile.protocol {
@@ -81,7 +86,7 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                 value["tls"] = serde_json::json!({"enabled":true,"server_name":if field("sni").is_empty() { server.clone() } else { field("sni").to_string() }});
             }
             if field("type") == "ws" || field("network") == "ws" {
-                value["transport"] = serde_json::json!({"type":"ws","path":field("path"),"headers":{"Host":field("host")} });
+                value["transport"] = serde_json::json!({"type":"ws","path":field("path"),"headers":{"Host":ws_host} });
             }
             value
         }
@@ -113,14 +118,14 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                 let mut stream = serde_json::json!({"network":network,"security":"tls","tlsSettings":{"serverName":if field("sni").is_empty() { server.clone() } else { field("sni").to_string() }}});
                 if network == "ws" {
                     stream["wsSettings"] =
-                        serde_json::json!({"path":field("path"),"headers":{"Host":field("host")}});
+                        serde_json::json!({"path":field("path"),"headers":{"Host":ws_host}});
                 }
                 value["streamSettings"] = stream;
             }
             if field("security") != "tls" && field("tls") != "tls" {
                 let network = field("type");
                 if network == "ws" {
-                    value["streamSettings"] = serde_json::json!({"network":"ws","wsSettings":{"path":field("path"),"headers":{"Host":field("host")}}});
+                    value["streamSettings"] = serde_json::json!({"network":"ws","wsSettings":{"path":field("path"),"headers":{"Host":ws_host}}});
                 }
                 if network == "grpc" {
                     value["streamSettings"] = serde_json::json!({"network":"grpc","grpcSettings":{"serviceName":field("serviceName")}});
@@ -254,6 +259,13 @@ mod tests {
         let outbound = &config["outbounds"][0];
         assert_eq!(outbound["tls"]["enabled"], true);
         assert_eq!(outbound["transport"]["type"], "ws");
+
+        profile.fields["host"] = serde_json::Value::String(String::new());
+        let fallback = build(&profile, Core::Xray, "127.0.0.1", 1080);
+        assert_eq!(
+            fallback["outbounds"][0]["streamSettings"]["wsSettings"]["headers"]["Host"],
+            "edge.example"
+        );
     }
 
     #[test]
