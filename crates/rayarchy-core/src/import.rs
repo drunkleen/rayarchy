@@ -72,6 +72,51 @@ pub fn parse_uri(input: &str) -> Result<Profile, String> {
     })
 }
 
+pub fn parse_input(input: &str) -> Result<Vec<Profile>, String> {
+    let text = input.trim();
+    if text.is_empty() {
+        return Err("input is empty".into());
+    }
+    if text.starts_with('{') {
+        let value: serde_json::Value =
+            serde_json::from_str(text).map_err(|e| format!("invalid JSON: {e}"))?;
+        let protocol = value
+            .get("protocol")
+            .or_else(|| value.get("type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("vless");
+        let scheme = match protocol.to_ascii_lowercase().as_str() {
+            "vmess" => "vmess",
+            "trojan" => "trojan",
+            "shadowsocks" | "ss" => "ss",
+            "socks" => "socks",
+            "http" => "http",
+            "hysteria2" | "hy2" => "hy2",
+            "tuic" => "tuic",
+            _ => "vless",
+        };
+        let server = value
+            .get("server")
+            .or_else(|| value.get("address"))
+            .and_then(|v| v.as_str())
+            .ok_or("JSON profile has no server")?;
+        let port = value
+            .get("port")
+            .and_then(|v| v.as_u64())
+            .ok_or("JSON profile has no port")?;
+        let raw = format!("{scheme}://profile@{server}:{port}");
+        return Ok(vec![parse_uri(&raw)?]);
+    }
+    let profiles: Vec<_> = text
+        .lines()
+        .filter_map(|line| parse_uri(line).ok())
+        .collect();
+    if profiles.is_empty() {
+        return Err("no supported proxy entries found".into());
+    }
+    Ok(profiles)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,5 +137,22 @@ mod tests {
         assert_eq!(p.server.as_deref(), Some("2001:db8::1"));
         assert_eq!(p.name, "Office");
         assert_eq!(p.fields["security"], "tls");
+    }
+
+    #[test]
+    fn parses_json_and_multiline_inputs() {
+        assert_eq!(
+            parse_input(r#"{"protocol":"trojan","server":"example.com","port":443}"#)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            parse_input("vless://a@example.com:443\ntrojan://b@example.com:8443")
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(parse_input("garbage").is_err());
     }
 }

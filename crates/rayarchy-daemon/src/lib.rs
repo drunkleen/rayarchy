@@ -198,19 +198,19 @@ impl Daemon {
             }
             "import.preview" => {
                 let input = params["input"].as_str().unwrap_or("");
-                match rayarchy_core::import::parse_uri(input) {
-                    Ok(profile) => serde_json::json!({"profiles":[profile],"errors":[]}),
+                match rayarchy_core::import::parse_input(input) {
+                    Ok(profiles) => serde_json::json!({"profiles":profiles,"errors":[]}),
                     Err(error) => serde_json::json!({"profiles":[],"errors":[error]}),
                 }
             }
             "import.commit" => {
                 let input = params["input"].as_str().unwrap_or("");
-                match rayarchy_core::import::parse_uri(input) {
-                    Ok(profile) => {
-                        let id = profile.id;
-                        self.db.lock().await.profiles.push(profile);
+                match rayarchy_core::import::parse_input(input) {
+                    Ok(profiles) => {
+                        let ids: Vec<_> = profiles.iter().map(|p| p.id).collect();
+                        self.db.lock().await.profiles.extend(profiles);
                         let _ = self.save().await;
-                        serde_json::json!({"profileIds":[id]})
+                        serde_json::json!({"profileIds":ids})
                     }
                     Err(error) => serde_json::json!({"error":error}),
                 }
@@ -392,9 +392,9 @@ impl Daemon {
                     Err(e) => return serde_json::json!({"error":e.to_string()}),
                 };
                 let body = String::from_utf8_lossy(&output.stdout);
-                let parsed: Vec<Profile> = body
-                    .lines()
-                    .filter_map(|line| rayarchy_core::import::parse_uri(line).ok())
+                let parsed: Vec<Profile> = rayarchy_core::import::parse_input(&body)
+                    .unwrap_or_default()
+                    .into_iter()
                     .map(|mut p| {
                         p.source_id = Some(id);
                         p
