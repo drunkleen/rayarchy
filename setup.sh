@@ -14,5 +14,6 @@ install -Dm755 "$root/target/release/rayarchy-daemon" "$HOME/.local/bin/rayarchy
 install -Dm755 "$root/target/release/rayarchy" "$HOME/.local/bin/rayarchy"
 install -Dm644 "$root/packaging/rayarchy.service" "$HOME/.config/systemd/user/rayarchy.service"
 systemctl --user daemon-reload
-systemctl --user enable --now rayarchy.service
+systemctl --user enable rayarchy.service
+systemctl --user restart rayarchy.service
 echo "Rayarchy backend installed. Open the Omarchy Rayarchy panel."
