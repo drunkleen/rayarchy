@@ -24,6 +24,35 @@ fn valid_subscription_url(url: &str) -> bool {
     (trimmed.starts_with("https://") || trimmed.starts_with("http://")) && trimmed.len() > 8
 }
 
+fn validate_profile(profile: &Profile) -> Result<(), String> {
+    if profile.server.as_deref().unwrap_or("").trim().is_empty() {
+        return Err("profile server is required".into());
+    }
+    if profile.port == Some(0) {
+        return Err("profile port must be between 1 and 65535".into());
+    }
+    if matches!(
+        profile.protocol,
+        rayarchy_core::protocol::Protocol::Vless
+            | rayarchy_core::protocol::Protocol::Vmess
+            | rayarchy_core::protocol::Protocol::Tuic
+    ) && profile
+        .fields
+        .as_object()
+        .is_some_and(|fields| !fields.is_empty())
+    {
+        let user = profile
+            .fields
+            .get("user")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if user.trim().is_empty() {
+            return Err("profile credential/UUID is required".into());
+        }
+    }
+    Ok(())
+}
+
 async fn validate_core_config(
     core: rayarchy_core::protocol::Core,
     path: &std::path::Path,
@@ -614,6 +643,9 @@ impl Daemon {
                 if p.name.trim().is_empty() {
                     p.name = format!("{:?} profile", p.protocol);
                 }
+                if let Err(error) = validate_profile(&p) {
+                    return serde_json::json!({"error":error});
+                }
                 let id = p.id;
                 if self.db.lock().await.profiles.iter().any(|existing| {
                     existing.server == p.server
@@ -642,6 +674,9 @@ impl Daemon {
                     Ok(v) => v,
                     Err(e) => return serde_json::json!({"error":e.to_string()}),
                 };
+                if let Err(error) = validate_profile(&p) {
+                    return serde_json::json!({"error":error});
+                }
                 let mut db = self.db.lock().await;
                 if let Some(existing) = db.profiles.iter_mut().find(|x| x.id == p.id) {
                     *existing = p;
@@ -1017,6 +1052,7 @@ mod tests {
         let daemon = Daemon::new(path.clone()).unwrap();
         let profile = Profile {
             name: "Active".into(),
+            server: Some("active.example".into()),
             ..Default::default()
         };
         let id = profile.id;
@@ -1058,6 +1094,21 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn profile_create_rejects_missing_endpoint() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let result = daemon
+            .dispatch(
+                "profile.create",
+                serde_json::json!({"profile":{"name":"broken","protocol":"vless","fields":{}}}),
+            )
+            .await;
+        assert!(result.get("error").is_some());
         let _ = std::fs::remove_file(path);
     }
 
