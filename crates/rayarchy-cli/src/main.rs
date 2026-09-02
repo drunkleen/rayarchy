@@ -28,6 +28,8 @@ async fn main() -> anyhow::Result<()> {
                 .dispatch("profile.disconnect", serde_json::json!({}))
                 .await,
         ),
+        "ip" => print_json(daemon.dispatch("test.ip", serde_json::json!({})).await),
+        "history" => print_json(daemon.dispatch("test.history", serde_json::json!({})).await),
         "import" => {
             let input = args.collect::<Vec<_>>().join(" ");
             print_json(
@@ -37,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         "help" | "--help" | "-h" => {
-            println!("rayarchy [status|profiles|connect ID|disconnect|import URI]")
+            println!("rayarchy [status|profiles|connect ID|disconnect|ip|history|import URI]")
         }
         command => {
             eprintln!("unknown command: {command}");
