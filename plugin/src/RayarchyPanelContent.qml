@@ -283,7 +283,7 @@ Item {
     Button { text: "Cancel bulk test"; onClicked: root.rpc.call("test.bulk.cancel", {}, function(result, error) { root.message = error ? error.message : "Bulk test cancellation requested" }) }
     Text { text: root.subscriptionSummary; visible: text !== ""; color: root.subscriptionSummary.indexOf("errors") >= 0 ? "#ef6a6a" : Qt.darker(Color.foreground, 1.5) }
     Button { text: "Settings"; Accessible.name: "Open Rayarchy settings"; onClicked: settings.open() }
-    Button { text: "Logs"; onClicked: { if (root.rpc) root.rpc.call("system.logs", {limit:200}, function(result,error) { logsText.text=error ? error.message : (result.lines || []).join("\n"); logs.open() }) } }
+    Button { text: "Logs"; onClicked: { if (root.rpc) root.rpc.call("system.diagnostics", {}, function(diag,diagError) { root.rpc.call("system.logs", {limit:200}, function(result,error) { if (error || diagError) logsText.text=(error || diagError).message; else logsText.text="Core PID: " + (diag.status.corePid || "none") + "\nCore uptime: " + (diag.status.coreUptimeSeconds === null ? "stopped" : (diag.status.coreUptimeSeconds || 0) + "s") + "\n\n" + (result.lines || []).join("\n"); logs.open() }) }) } }
     Button { text: "Routing"; Accessible.name: "Manage routing rules"; onClicked: routing.open() }
     Button { text: "Backup"; onClicked: { if (root.rpc) root.rpc.call("backup.export", {}, function(result,error) { backupText.text=error ? error.message : JSON.stringify(result); backup.open() }) } }
   }
