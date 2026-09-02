@@ -1176,6 +1176,7 @@ Item {
         id: confirmDelete
         modal: true
         title: "Delete profile?"
+        width: Math.min(Style.space(560), Math.max(Style.space(320), root.width - Style.space(24)))
         standardButtons: Dialog.Yes | Dialog.No
         contentItem: Text {
             text: "Delete “" + root.pendingDeleteName + "”? This cannot be undone."
@@ -1221,6 +1222,7 @@ Item {
         id: clearProfileHistoryConfirm
         modal: true
         title: "Clear profile history?"
+        width: Math.min(Style.space(560), Math.max(Style.space(320), root.width - Style.space(24)))
         standardButtons: Dialog.Yes | Dialog.No
         contentItem: Text {
             text: "Remove all saved diagnostics for “" + history.profileName + "”?"
@@ -1243,6 +1245,7 @@ Item {
         id: clearHistoryConfirm
         modal: true
         title: "Clear test history?"
+        width: Math.min(Style.space(560), Math.max(Style.space(320), root.width - Style.space(24)))
         standardButtons: Dialog.Yes | Dialog.No
         contentItem: Text {
             text: "Remove all saved connectivity and health test results?"

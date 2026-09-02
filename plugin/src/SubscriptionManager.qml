@@ -147,6 +147,7 @@ Dialog {
         id: deleteConfirm
         modal: true
         title: "Delete subscription?"
+        width: Math.min(Style.space(560), Math.max(Style.space(320), root.width - Style.space(24)))
         standardButtons: Dialog.Yes | Dialog.No
         contentItem: Text {
             text: "Delete “" + root.pendingDeleteName + "”? This cannot be undone."
