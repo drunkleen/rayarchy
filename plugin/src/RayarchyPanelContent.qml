@@ -178,6 +178,7 @@ Item {
     Button { text: "Refresh history"; onClicked: { root.refreshSubscriptions(); subscriptionHistory.open() } }
     Button { text: root.subscriptionRefreshing ? "Refreshing subscriptions…" : "Refresh all subscriptions"; enabled: !root.subscriptionRefreshing; onClicked: refreshAllSubscriptions() }
     Button { text: "Bulk TCP test"; onClicked: { root.rpc.call("test.bulk", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); subscriptionStatusLoader.item.open() }) } }
+    Button { text: "Clear all test history"; onClicked: clearHistoryConfirm.open() }
     Button { text: "Test all proxy connections"; onClicked: { root.rpc.call("test.bulk.proxy", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { if (!error) root.bulkResults = result.results || []; subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : root.formatBulkResults(root.bulkResults); subscriptionStatusLoader.item.open() }) } }
     Button { text: "Use best working profile"; enabled: root.bulkResults.some(function(r) { return r.ok }); onClicked: { var candidates = root.bulkResults.filter(function(r) { return r.ok }).sort(function(a, b) { return Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999) }); if (candidates.length) { root.selectedId = candidates[0].profileId; root.message = "Selected " + candidates[0].name + " (" + candidates[0].latencyMs + " ms)" } } }
     Button { text: "Sort results: " + root.bulkSortMode; enabled: root.bulkResults.length > 0; onClicked: { root.cycleBulkSort(); subscriptionStatusLoader.item.contentItem.children[0].text = root.formatBulkResults(root.bulkResults) } }
@@ -193,6 +194,7 @@ Item {
   property string pendingDeleteName: ""
   Dialog { id: confirmDelete; modal: true; title: "Delete profile?"; standardButtons: Dialog.Yes | Dialog.No; contentItem: Text { text: "Delete “" + root.pendingDeleteName + "”? This cannot be undone."; color: Color.foreground; wrapMode: Text.WordWrap } onAccepted: root.rpc.call("profile.delete", { profileId: root.pendingDeleteId }, function(result,error) { root.message = error ? error.message : "Profile deleted"; if (!error) { root.selectedId = ""; root.refresh() } }) }
   Dialog { id: history; modal: true; title: "Test history"; standardButtons: Dialog.Close; contentItem: TextArea { id: historyText; width: 520; height: 300; readOnly: true; wrapMode: TextEdit.NoWrap; selectByMouse: true } }
+  Dialog { id: clearHistoryConfirm; modal: true; title: "Clear test history?"; standardButtons: Dialog.Yes | Dialog.No; contentItem: Text { text: "Remove all saved connectivity and health test results?"; color: Color.foreground; wrapMode: Text.WordWrap } onAccepted: root.rpc.call("test.history.clear", {}, function(result,error) { if (error) root.message=error.message; else { root.bulkResults=[]; showSuccess("Test history cleared"); root.refresh() } }) }
   Dialog {
     id: addDialog
     modal: true
