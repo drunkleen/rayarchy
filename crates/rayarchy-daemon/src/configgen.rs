@@ -141,6 +141,21 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
     }
 }
 
+pub fn apply_dns(config: &mut serde_json::Value, core: Core, protected: bool) {
+    if !protected {
+        return;
+    }
+    match core {
+        Core::SingBox => {
+            config["dns"] = serde_json::json!({"servers":[{"tag":"rayarchy-dns","address":"https://1.1.1.1/dns-query","detour":"proxy"}],"final":"rayarchy-dns"})
+        }
+        Core::Xray => {
+            config["dns"] = serde_json::json!({"servers":["https://1.1.1.1/dns-query","localhost"]})
+        }
+        Core::Auto => {}
+    }
+}
+
 pub fn apply_rules(config: &mut serde_json::Value, core: Core, rules: &[RoutingRule]) {
     let enabled = rules.iter().filter(|r| r.enabled);
     match core {
@@ -299,5 +314,17 @@ mod tests {
             ss["outbounds"][0]["settings"]["servers"][0]["method"],
             "2022-blake3-aes-128-gcm"
         );
+    }
+
+    #[test]
+    fn protected_dns_is_added_only_when_enabled() {
+        let profile = Profile {
+            server: Some("dns.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        let mut config = build(&profile, Core::SingBox, "127.0.0.1", 1080);
+        apply_dns(&mut config, Core::SingBox, true);
+        assert_eq!(config["dns"]["final"], "rayarchy-dns");
     }
 }

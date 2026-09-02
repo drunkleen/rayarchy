@@ -270,6 +270,7 @@ impl Daemon {
         };
         let mut config = configgen::build(&profile, core, "127.0.0.1", settings.local_port);
         configgen::apply_rules(&mut config, core, &rules);
+        configgen::apply_dns(&mut config, core, settings.dns_leak_protection);
         if let Some(parent) = self.config_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
@@ -400,6 +401,7 @@ impl Daemon {
                 let mut config = configgen::build(&profile, core, "127.0.0.1", settings.local_port);
                 let rules = self.db.lock().await.routing.clone();
                 configgen::apply_rules(&mut config, core, &rules);
+                configgen::apply_dns(&mut config, core, settings.dns_leak_protection);
                 let path = std::env::temp_dir()
                     .join(format!("rayarchy-validate-{}.json", uuid::Uuid::new_v4()));
                 if let Err(error) =
