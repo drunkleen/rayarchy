@@ -11,7 +11,7 @@
 - [ ] Add/import: URI, clipboard, JSON/YAML, WireGuard, QR payload
 - [ ] Profile editor with protocol-specific fields and raw config fallback
 - [x] Duplicate, export, share URI, QR, delete confirmation
-- [x] Subscription add/edit/delete/update, basic enable/refresh controls
+- [x] Subscription add/edit/delete/update, auto-refresh scheduler, basic enable controls
 - [x] TCP/proxy/real latency, speed, and bounded history
 - [x] Xray and sing-box generation and basic lifecycle with health-gated activation
 - [ ] Core validation, crash recovery, reconnect backoff, and protocol-specific settings
