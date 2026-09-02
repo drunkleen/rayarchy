@@ -10,7 +10,14 @@ pub fn choose_core(profile: &Profile, preferred: Core) -> Core {
     }
     if matches!(
         profile.protocol,
-        Protocol::Hysteria2 | Protocol::Tuic | Protocol::Wireguard
+        Protocol::Hysteria2
+            | Protocol::Tuic
+            | Protocol::Wireguard
+            | Protocol::Anytls
+            | Protocol::Naive
+            | Protocol::Custom
+            | Protocol::PolicyGroup
+            | Protocol::ProxyChain
     ) {
         Core::SingBox
     } else {
@@ -19,6 +26,13 @@ pub fn choose_core(profile: &Profile, preferred: Core) -> Core {
 }
 
 pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json::Value {
+    if profile.protocol == Protocol::Custom {
+        return profile
+            .raw
+            .as_deref()
+            .and_then(|raw| serde_json::from_str(raw).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+    }
     let server = profile.server.clone().unwrap_or_default();
     let server_port = profile.port.unwrap_or_default();
     let field = |name: &str| {
@@ -48,6 +62,9 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                 Protocol::Hysteria2 => "hysteria2",
                 Protocol::Tuic => "tuic",
                 Protocol::Wireguard => "wireguard",
+                Protocol::Anytls => "anytls",
+                Protocol::Naive => "naive",
+                Protocol::Custom | Protocol::PolicyGroup | Protocol::ProxyChain => "direct",
             };
             if profile.protocol == Protocol::Wireguard {
                 return serde_json::json!({"log":{"level":"info"},"inbounds":[{"type":"mixed","tag":"rayarchy-in","listen":host,"listen_port":port}],"outbounds":[{"type":"wireguard","tag":"proxy","server":server,"server_port":server_port,"local_address":[field("local_address")],"private_key":field("private_key"),"peers":[{"public_key":field("public_key"),"allowed_ips":["0.0.0.0/0","::/0"]}]},{"type":"direct","tag":"direct"},{"type":"block","tag":"block"}],"route":{"rules":[]}});
@@ -61,7 +78,12 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
             }
             if matches!(
                 profile.protocol,
-                Protocol::Trojan | Protocol::Shadowsocks | Protocol::Hysteria2 | Protocol::Tuic
+                Protocol::Trojan
+                    | Protocol::Shadowsocks
+                    | Protocol::Hysteria2
+                    | Protocol::Tuic
+                    | Protocol::Anytls
+                    | Protocol::Naive
             ) {
                 value["password"] = serde_json::Value::String(if password.is_empty() {
                     user.to_string()
@@ -98,7 +120,14 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                 Protocol::Shadowsocks => "shadowsocks",
                 Protocol::Socks => "socks",
                 Protocol::Http => "http",
-                _ => "freedom",
+                Protocol::Custom
+                | Protocol::PolicyGroup
+                | Protocol::ProxyChain
+                | Protocol::Hysteria2
+                | Protocol::Tuic
+                | Protocol::Wireguard
+                | Protocol::Anytls
+                | Protocol::Naive => "freedom",
             };
             let settings = if matches!(profile.protocol, Protocol::Vless | Protocol::Vmess) {
                 serde_json::json!({"vnext":[{"address":server,"port":server_port,"users":[{"id":user,"alterId":profile.fields.get("aid").and_then(|v| v.as_u64()).unwrap_or(0),"encryption":if field("encryption").is_empty() { "none" } else { field("encryption") },"flow":field("flow")}]}]})
@@ -144,6 +173,44 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
         }
         Core::Auto => unreachable!(),
     }
+}
+
+/// Build a sing-box configuration whose first outbound traverses every member
+/// in order. The first member is the entry hop and the last is the exit hop.
+pub fn build_chain(
+    members: &[Profile],
+    host: &str,
+    port: u16,
+) -> Result<serde_json::Value, String> {
+    if members.len() < 2 {
+        return Err("proxy chain requires at least two members".into());
+    }
+    let mut outbounds = Vec::with_capacity(members.len() + 2);
+    for (index, profile) in members.iter().enumerate() {
+        if matches!(
+            profile.protocol,
+            Protocol::PolicyGroup | Protocol::ProxyChain | Protocol::Custom
+        ) {
+            return Err(
+                "nested groups, chains, and full custom configs cannot be chain hops".into(),
+            );
+        }
+        let generated = build(profile, Core::SingBox, host, port);
+        let mut outbound = generated["outbounds"][0].clone();
+        outbound["tag"] = serde_json::json!(format!("chain-{index}"));
+        if index + 1 < members.len() {
+            outbound["detour"] = serde_json::json!(format!("chain-{}", index + 1));
+        }
+        outbounds.push(outbound);
+    }
+    outbounds.push(serde_json::json!({"type":"direct","tag":"direct"}));
+    outbounds.push(serde_json::json!({"type":"block","tag":"block"}));
+    Ok(serde_json::json!({
+        "log":{"level":"info"},
+        "inbounds":[{"type":"mixed","tag":"rayarchy-in","listen":host,"listen_port":port}],
+        "outbounds":outbounds,
+        "route":{"rules":[],"final":"chain-0"}
+    }))
 }
 
 pub fn apply_dns(config: &mut serde_json::Value, core: Core, protected: bool) {
@@ -357,6 +424,40 @@ mod tests {
         let mut config = build(&profile, Core::SingBox, "127.0.0.1", 1080);
         apply_dns(&mut config, Core::SingBox, true);
         assert_eq!(config["dns"]["final"], "rayarchy-dns");
+    }
+
+    #[test]
+    fn anytls_and_naive_generate_sing_box_outbounds() {
+        for (protocol, expected) in [(Protocol::Anytls, "anytls"), (Protocol::Naive, "naive")] {
+            let mut profile = Profile {
+                protocol,
+                server: Some("edge.example".into()),
+                port: Some(443),
+                ..Default::default()
+            };
+            profile.fields = serde_json::json!({"user":"alice","password":"secret"});
+            assert_eq!(
+                build(&profile, Core::SingBox, "127.0.0.1", 1080)["outbounds"][0]["type"],
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn proxy_chain_preserves_hop_order() {
+        let members: Vec<_> = ["first.example", "exit.example"]
+            .into_iter()
+            .map(|server| Profile {
+                protocol: Protocol::Socks,
+                server: Some(server.into()),
+                port: Some(1080),
+                ..Default::default()
+            })
+            .collect();
+        let config = build_chain(&members, "127.0.0.1", 1080).unwrap();
+        assert_eq!(config["outbounds"][0]["tag"], "chain-0");
+        assert_eq!(config["outbounds"][0]["detour"], "chain-1");
+        assert_eq!(config["route"]["final"], "chain-0");
     }
 
     #[test]

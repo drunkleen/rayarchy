@@ -37,12 +37,12 @@ Dialog {
         }
         TextField {
             id: user
-            visible: ["vless", "vmess", "tuic", "socks", "http"].indexOf(protocol.text) >= 0
+            visible: ["vless", "vmess", "tuic", "anytls", "naive", "socks", "http"].indexOf(protocol.text) >= 0
             placeholderText: "UUID / user"
         }
         TextField {
             id: password
-            visible: ["trojan", "shadowsocks", "hysteria2", "tuic", "socks", "http"].indexOf(protocol.text) >= 0
+            visible: ["trojan", "shadowsocks", "hysteria2", "tuic", "anytls", "naive", "socks", "http"].indexOf(protocol.text) >= 0
             placeholderText: "Password"
             echoMode: TextInput.Password
         }
@@ -53,7 +53,7 @@ Dialog {
         }
         TextField {
             id: security
-            visible: ["vless", "vmess", "trojan", "hysteria2", "tuic"].indexOf(protocol.text) >= 0
+            visible: ["vless", "vmess", "trojan", "hysteria2", "tuic", "anytls"].indexOf(protocol.text) >= 0
             placeholderText: "Security (tls/none)"
         }
         TextField {

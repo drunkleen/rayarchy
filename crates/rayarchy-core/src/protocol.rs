@@ -12,6 +12,11 @@ pub enum Protocol {
     Hysteria2,
     Tuic,
     Wireguard,
+    Anytls,
+    Naive,
+    Custom,
+    PolicyGroup,
+    ProxyChain,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

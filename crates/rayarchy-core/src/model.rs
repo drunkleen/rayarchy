@@ -32,6 +32,12 @@ pub struct Profile {
     pub fields: Value,
     #[serde(default)]
     pub raw: Option<String>,
+    /// Ordered member profile ids for policy groups and proxy chains.
+    #[serde(default)]
+    pub members: Vec<Uuid>,
+    /// Policy selection strategy: manual, latency, fallback, or load_balance.
+    #[serde(default)]
+    pub strategy: Option<String>,
 }
 
 impl Default for Profile {
@@ -49,6 +55,8 @@ impl Default for Profile {
             source_id: None,
             fields: Value::Object(Default::default()),
             raw: None,
+            members: Vec::new(),
+            strategy: None,
         }
     }
 }

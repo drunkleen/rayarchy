@@ -56,6 +56,8 @@ pub fn parse_uri(input: &str) -> Result<Profile, String> {
         "hy2" | "hysteria2" => Protocol::Hysteria2,
         "tuic" => Protocol::Tuic,
         "wireguard" => Protocol::Wireguard,
+        "anytls" => Protocol::Anytls,
+        "naive" | "naive+https" => Protocol::Naive,
         _ => return Err(format!("unsupported URI scheme: {scheme}")),
     };
     if protocol == Protocol::Vmess {
@@ -182,7 +184,22 @@ pub fn parse_input(input: &str) -> Result<Vec<Profile>, String> {
             .get("protocol")
             .or_else(|| value.get("type"))
             .and_then(|v| v.as_str())
-            .unwrap_or("vless");
+            .unwrap_or("");
+        if protocol.is_empty()
+            && (value.get("outbounds").is_some() || value.get("inbounds").is_some())
+        {
+            return Ok(vec![Profile {
+                protocol: Protocol::Custom,
+                name: value
+                    .get("name")
+                    .and_then(|item| item.as_str())
+                    .unwrap_or("Custom core configuration")
+                    .into(),
+                raw: Some(text.into()),
+                fields: value,
+                ..Profile::default()
+            }]);
+        }
         let scheme = match protocol.to_ascii_lowercase().as_str() {
             "vmess" => "vmess",
             "trojan" => "trojan",
@@ -191,6 +208,9 @@ pub fn parse_input(input: &str) -> Result<Vec<Profile>, String> {
             "http" => "http",
             "hysteria2" | "hy2" => "hy2",
             "tuic" => "tuic",
+            "wireguard" => "wireguard",
+            "anytls" => "anytls",
+            "naive" => "naive",
             _ => "vless",
         };
         let server = value
@@ -211,6 +231,9 @@ pub fn parse_input(input: &str) -> Result<Vec<Profile>, String> {
                 "vmess" => Protocol::Vmess,
                 "socks" => Protocol::Socks,
                 "http" => Protocol::Http,
+                "wireguard" => Protocol::Wireguard,
+                "anytls" => Protocol::Anytls,
+                "naive" => Protocol::Naive,
                 _ => Protocol::Vless,
             },
             name: value
@@ -281,6 +304,9 @@ pub fn parse_input(input: &str) -> Result<Vec<Profile>, String> {
             "http" => Protocol::Http,
             "hy2" | "hysteria2" => Protocol::Hysteria2,
             "tuic" => Protocol::Tuic,
+            "wireguard" => Protocol::Wireguard,
+            "anytls" => Protocol::Anytls,
+            "naive" => Protocol::Naive,
             _ => Protocol::Vless,
         };
         return Ok(vec![Profile {
@@ -370,5 +396,23 @@ mod tests {
             parse_uri("vless://id@example.com:443?path=%2Fray%20ws#Office%20%E2%9C%93").unwrap();
         assert_eq!(profile.name, "Office ✓");
         assert_eq!(profile.fields["path"], "/ray ws");
+    }
+
+    #[test]
+    fn parses_anytls_naive_and_full_custom_configs() {
+        assert_eq!(
+            parse_uri("anytls://alice@edge.example:443#AnyTLS")
+                .unwrap()
+                .protocol,
+            Protocol::Anytls
+        );
+        assert_eq!(
+            parse_uri("naive+https://alice:secret@edge.example:443#Naive")
+                .unwrap()
+                .protocol,
+            Protocol::Naive
+        );
+        let custom = parse_input(r#"{"inbounds":[],"outbounds":[]}"#).unwrap();
+        assert_eq!(custom[0].protocol, Protocol::Custom);
     }
 }

@@ -1271,7 +1271,9 @@ Item {
                                 port: Number(portEdit.text),
                                 sourceId: modelData.sourceId,
                                 fields: fields,
-                                raw: modelData.raw
+                                raw: modelData.raw,
+                                members: modelData.members || [],
+                                strategy: modelData.strategy || null
                             }
                         }, function (result, error) {
                             if (error)
@@ -1328,6 +1330,10 @@ Item {
             Button {
                 text: "Add profile"
                 onClicked: addDialog.open()
+            }
+            Button {
+                text: "Advanced profile"
+                onClicked: advancedProfile.open()
             }
             Button {
                 text: "Subscriptions"
@@ -1515,6 +1521,91 @@ Item {
     }
     property string pendingDeleteId: ""
     property string pendingDeleteName: ""
+    Dialog {
+        id: advancedProfile
+        title: "Custom, policy, or chain profile"
+        modal: true
+        width: Math.min(Style.space(560), Math.max(Style.space(320), root.width - Style.space(24)))
+        standardButtons: Dialog.Save | Dialog.Cancel
+        contentItem: Column {
+            spacing: Style.space(8)
+            TextField {
+                id: advancedName
+                placeholderText: "Profile name"
+            }
+            ComboBox {
+                id: advancedType
+                model: ["anytls", "naive", "custom", "policy-group", "proxy-chain"]
+            }
+            TextField {
+                id: advancedServer
+                visible: advancedType.currentText === "anytls" || advancedType.currentText === "naive"
+                placeholderText: "Server"
+            }
+            TextField {
+                id: advancedPort
+                visible: advancedServer.visible
+                placeholderText: "Port"
+                inputMethodHints: Qt.ImhDigitsOnly
+            }
+            ComboBox {
+                id: advancedStrategy
+                visible: advancedType.currentText === "policy-group"
+                model: ["manual", "latency", "fallback", "load_balance"]
+            }
+            TextArea {
+                id: advancedPayload
+                width: parent.width
+                height: Style.space(140)
+                placeholderText: advancedType.currentText === "custom" ? "Complete Xray or sing-box JSON" : (advancedServer.visible ? "Protocol fields as JSON" : "Ordered member profile UUIDs, one per line")
+                selectByMouse: true
+            }
+        }
+        onAccepted: {
+            var fields = {};
+            var members = [];
+            var raw = null;
+            try {
+                if (advancedType.currentText === "custom") {
+                    JSON.parse(advancedPayload.text);
+                    raw = advancedPayload.text;
+                } else if (advancedServer.visible) {
+                    fields = JSON.parse(advancedPayload.text || "{}");
+                } else {
+                    members = advancedPayload.text.split(/\s+/).filter(function (value) {
+                        return value.length > 0;
+                    });
+                }
+            } catch (error) {
+                root.message = "Invalid JSON: " + error;
+                advancedProfile.open();
+                return;
+            }
+            root.rpc.call("profile.create", {
+                profile: {
+                    name: advancedName.text,
+                    protocol: advancedType.currentText,
+                    enabled: true,
+                    favorite: false,
+                    group: "",
+                    server: advancedServer.visible ? advancedServer.text : null,
+                    port: advancedServer.visible ? Number(advancedPort.text) : null,
+                    fields: fields,
+                    raw: raw,
+                    members: members,
+                    strategy: advancedType.currentText === "policy-group" ? advancedStrategy.currentText : null
+                }
+            }, function (result, error) {
+                if (error) {
+                    root.message = error.message;
+                    advancedProfile.open();
+                    return;
+                }
+                root.showSuccess("Advanced profile added");
+                root.refresh();
+            });
+        }
+    }
     Dialog {
         id: confirmDelete
         modal: true

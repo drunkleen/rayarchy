@@ -12,6 +12,18 @@
 | BackupAndRestore | Encrypted/permission-safe archive import/export |
 | CoreManager | Rust process manager for xray and sing-box |
 
+The fixed reference revision and full Linux workflow inventory are documented
+in [parity-baseline.md](parity-baseline.md).
+
+## Advanced profile behavior
+
+AnyTLS and Naive profiles are generated for sing-box. Full custom JSON configs
+are validated and handed to the selected core unchanged. Policy groups persist
+an ordered member list and support manual, latency, fallback, and load-balance
+selection. Proxy chains preserve hop order and compile to sing-box detours.
+Groups and chains reject missing, disabled, duplicate, self-referential, or
+nested members through the same RPC validation used by the QML editor.
+
 ## Profile list behavior
 
 `profile.list` accepts `query`, `group`, `sort`, `favoritesOnly`, and

@@ -25,6 +25,46 @@ fn valid_subscription_url(url: &str) -> bool {
 }
 
 fn validate_profile(profile: &Profile) -> Result<(), String> {
+    use rayarchy_core::protocol::Protocol;
+
+    if matches!(
+        profile.protocol,
+        Protocol::PolicyGroup | Protocol::ProxyChain
+    ) {
+        let minimum = if profile.protocol == Protocol::ProxyChain {
+            2
+        } else {
+            1
+        };
+        if profile.members.len() < minimum {
+            return Err(format!(
+                "{} requires at least {minimum} member profile(s)",
+                if profile.protocol == Protocol::ProxyChain {
+                    "proxy chain"
+                } else {
+                    "policy group"
+                }
+            ));
+        }
+        if profile.protocol == Protocol::PolicyGroup
+            && !matches!(
+                profile.strategy.as_deref().unwrap_or("manual"),
+                "manual" | "latency" | "fallback" | "load_balance"
+            )
+        {
+            return Err("unsupported policy-group strategy".into());
+        }
+        return Ok(());
+    }
+    if profile.protocol == Protocol::Custom {
+        let raw = profile.raw.as_deref().unwrap_or("").trim();
+        if raw.is_empty() {
+            return Err("custom profile requires a raw core configuration".into());
+        }
+        serde_json::from_str::<serde_json::Value>(raw)
+            .map_err(|_| "custom profile configuration must be valid JSON".to_string())?;
+        return Ok(());
+    }
     if profile.server.as_deref().unwrap_or("").trim().is_empty() {
         return Err("profile server is required".into());
     }
@@ -36,6 +76,7 @@ fn validate_profile(profile: &Profile) -> Result<(), String> {
         rayarchy_core::protocol::Protocol::Vless
             | rayarchy_core::protocol::Protocol::Vmess
             | rayarchy_core::protocol::Protocol::Tuic
+            | rayarchy_core::protocol::Protocol::Anytls
     ) && profile
         .fields
         .as_object()
@@ -68,11 +109,59 @@ fn validate_profile(profile: &Profile) -> Result<(), String> {
         .or_else(|| profile.fields.get("network"))
         .and_then(|v| v.as_str())
     {
-        if !network.is_empty() && !matches!(network, "tcp" | "ws" | "grpc" | "http" | "h2") {
+        if !network.is_empty()
+            && !matches!(
+                network,
+                "tcp" | "ws" | "grpc" | "http" | "h2" | "httpupgrade" | "xhttp" | "quic"
+            )
+        {
             return Err("unsupported transport network".into());
         }
     }
     Ok(())
+}
+
+fn validate_profile_members(profile: &Profile, profiles: &[Profile]) -> Result<(), String> {
+    if !matches!(
+        profile.protocol,
+        rayarchy_core::protocol::Protocol::PolicyGroup
+            | rayarchy_core::protocol::Protocol::ProxyChain
+    ) {
+        return Ok(());
+    }
+    let mut unique = std::collections::HashSet::new();
+    for member in &profile.members {
+        if *member == profile.id {
+            return Err("a profile cannot contain itself".into());
+        }
+        if !unique.insert(*member) {
+            return Err("member profiles must be unique".into());
+        }
+        let Some(candidate) = profiles.iter().find(|item| item.id == *member) else {
+            return Err(format!("member profile {member} was not found"));
+        };
+        if !candidate.enabled {
+            return Err(format!("member profile {} is disabled", candidate.name));
+        }
+        if matches!(
+            candidate.protocol,
+            rayarchy_core::protocol::Protocol::PolicyGroup
+                | rayarchy_core::protocol::Protocol::ProxyChain
+        ) {
+            return Err("nested policy groups and proxy chains are not supported".into());
+        }
+    }
+    Ok(())
+}
+
+fn profiles_equivalent(left: &Profile, right: &Profile) -> bool {
+    left.protocol == right.protocol
+        && left.server == right.server
+        && left.port == right.port
+        && left.fields == right.fields
+        && left.raw == right.raw
+        && left.members == right.members
+        && left.strategy == right.strategy
 }
 
 fn validate_rule(rule: &RoutingRule) -> Result<(), String> {
@@ -297,7 +386,7 @@ impl Daemon {
     }
 
     async fn connect_profile(self: &Arc<Self>, id: uuid::Uuid) -> Result<(), String> {
-        let (profile, settings) = {
+        let (profile, settings, profiles, rules, history) = {
             let db = self.db.lock().await;
             (
                 db.profiles
@@ -306,6 +395,9 @@ impl Daemon {
                     .cloned()
                     .ok_or("profile not found")?,
                 db.settings.clone(),
+                db.profiles.clone(),
+                db.routing.clone(),
+                db.test_history.clone(),
             )
         };
         if matches!(
@@ -318,12 +410,55 @@ impl Daemon {
                     .into(),
             );
         }
-        let core = configgen::choose_core(&profile, settings.preferred_core);
-        let rules = {
-            let db = self.db.lock().await;
-            db.routing.clone()
+        let selected = if profile.protocol == rayarchy_core::protocol::Protocol::PolicyGroup {
+            let mut candidates: Vec<_> = profile
+                .members
+                .iter()
+                .filter_map(|member| profiles.iter().find(|item| item.id == *member))
+                .cloned()
+                .collect();
+            match profile.strategy.as_deref().unwrap_or("manual") {
+                "latency" => candidates.sort_by_key(|candidate| {
+                    history
+                        .iter()
+                        .rev()
+                        .find(|row| {
+                            row["profileId"].as_str() == Some(&candidate.id.to_string())
+                                && row["ok"].as_bool() == Some(true)
+                        })
+                        .and_then(|row| row["latencyMs"].as_u64())
+                        .unwrap_or(u64::MAX)
+                }),
+                "load_balance" if !candidates.is_empty() => {
+                    let rotate =
+                        chrono::Utc::now().timestamp().unsigned_abs() as usize % candidates.len();
+                    candidates.rotate_left(rotate);
+                }
+                _ => {}
+            }
+            candidates
+                .into_iter()
+                .next()
+                .ok_or("policy group has no available members")?
+        } else {
+            profile.clone()
         };
-        let mut config = configgen::build(&profile, core, "127.0.0.1", settings.local_port);
+        let core = if profile.protocol == rayarchy_core::protocol::Protocol::ProxyChain {
+            rayarchy_core::protocol::Core::SingBox
+        } else {
+            configgen::choose_core(&selected, settings.preferred_core)
+        };
+        let mut config = if profile.protocol == rayarchy_core::protocol::Protocol::ProxyChain {
+            let members: Vec<_> = profile
+                .members
+                .iter()
+                .filter_map(|member| profiles.iter().find(|item| item.id == *member))
+                .cloned()
+                .collect();
+            configgen::build_chain(&members, "127.0.0.1", settings.local_port)?
+        } else {
+            configgen::build(&selected, core, "127.0.0.1", settings.local_port)
+        };
         configgen::apply_rules(&mut config, core, &rules);
         configgen::apply_dns(&mut config, core, settings.dns_leak_protection);
         configgen::apply_lan_bypass(&mut config, core, settings.lan_bypass);
@@ -840,6 +975,11 @@ impl Daemon {
                     "hysteria2" => &["password", "sni", "obfs", "obfs-password"],
                     "tuic" => &["user", "password", "congestion_control", "sni"],
                     "wireguard" => &["private_key", "public_key", "local_address", "mtu"],
+                    "anytls" => &["user", "password", "sni", "idle_session_check_interval"],
+                    "naive" => &["user", "password"],
+                    "policy-group" => &["members", "strategy"],
+                    "proxy-chain" => &["members"],
+                    "custom" => &["raw"],
                     "socks" | "http" => &["user", "password"],
                     _ => &[],
                 };
@@ -923,11 +1063,11 @@ impl Daemon {
                         let ids: Vec<_> = profiles.iter().map(|p| p.id).collect();
                         let mut db = self.db.lock().await;
                         for profile in profiles {
-                            if !db.profiles.iter().any(|existing| {
-                                existing.server == profile.server
-                                    && existing.port == profile.port
-                                    && existing.fields == profile.fields
-                            }) {
+                            if !db
+                                .profiles
+                                .iter()
+                                .any(|existing| profiles_equivalent(existing, &profile))
+                            {
                                 db.profiles.push(profile);
                             }
                         }
@@ -949,12 +1089,18 @@ impl Daemon {
                 if let Err(error) = validate_profile(&p) {
                     return serde_json::json!({"error":error});
                 }
+                if let Err(error) = validate_profile_members(&p, &self.db.lock().await.profiles) {
+                    return serde_json::json!({"error":error});
+                }
                 let id = p.id;
-                if self.db.lock().await.profiles.iter().any(|existing| {
-                    existing.server == p.server
-                        && existing.port == p.port
-                        && existing.fields == p.fields
-                }) {
+                if self
+                    .db
+                    .lock()
+                    .await
+                    .profiles
+                    .iter()
+                    .any(|existing| profiles_equivalent(existing, &p))
+                {
                     return serde_json::json!({"error":"duplicate profile"});
                 }
                 self.db.lock().await.profiles.push(p);
@@ -968,7 +1114,18 @@ impl Daemon {
                 if id.is_some() && *self.connected.lock().await == id {
                     return serde_json::json!({"error":"disconnect the active profile before deleting it"});
                 }
-                self.db.lock().await.profiles.retain(|p| Some(p.id) != id);
+                let mut db = self.db.lock().await;
+                if let Some(id) = id {
+                    if let Some(container) = db
+                        .profiles
+                        .iter()
+                        .find(|profile| profile.members.contains(&id))
+                    {
+                        return serde_json::json!({"error":format!("profile is used by {}", container.name)});
+                    }
+                }
+                db.profiles.retain(|p| Some(p.id) != id);
+                drop(db);
                 let _ = self.save().await;
                 serde_json::json!({"ok":true})
             }
@@ -981,6 +1138,9 @@ impl Daemon {
                     return serde_json::json!({"error":error});
                 }
                 let mut db = self.db.lock().await;
+                if let Err(error) = validate_profile_members(&p, &db.profiles) {
+                    return serde_json::json!({"error":error});
+                }
                 if let Some(existing) = db.profiles.iter_mut().find(|x| x.id == p.id) {
                     *existing = p;
                 } else {
@@ -1358,6 +1518,58 @@ mod tests {
                 .dispatch("profile.get", serde_json::json!({"profileId":id}))
                 .await["name"],
             "Edited"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn policy_groups_and_proxy_chains_validate_members() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let first = Profile {
+            name: "Entry".into(),
+            protocol: rayarchy_core::protocol::Protocol::Socks,
+            server: Some("entry.example".into()),
+            port: Some(1080),
+            ..Default::default()
+        };
+        let second = Profile {
+            name: "Exit".into(),
+            protocol: rayarchy_core::protocol::Protocol::Trojan,
+            server: Some("exit.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        for profile in [&first, &second] {
+            assert!(daemon
+                .dispatch("profile.create", serde_json::json!({"profile":profile}))
+                .await
+                .get("error")
+                .is_none());
+        }
+        let chain = Profile {
+            name: "Two hop".into(),
+            protocol: rayarchy_core::protocol::Protocol::ProxyChain,
+            members: vec![first.id, second.id],
+            ..Default::default()
+        };
+        assert!(daemon
+            .dispatch("profile.create", serde_json::json!({"profile":chain}))
+            .await["profileId"]
+            .is_string());
+        let invalid = Profile {
+            name: "Broken group".into(),
+            protocol: rayarchy_core::protocol::Protocol::PolicyGroup,
+            members: vec![uuid::Uuid::new_v4()],
+            strategy: Some("latency".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            daemon
+                .dispatch("profile.create", serde_json::json!({"profile":invalid}))
+                .await["error"],
+            format!("member profile {} was not found", invalid.members[0])
         );
         let _ = std::fs::remove_file(path);
     }
