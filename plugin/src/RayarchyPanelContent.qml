@@ -49,6 +49,7 @@ Item {
     property bool diagnosticRunning: false
     property string selectedId: ""
     property string message: ""
+    property string currentPage: "dashboard"
     property string subscriptionSummary: ""
     property var bulkResults: []
     property string bulkSortMode: "fastest"
@@ -320,6 +321,120 @@ Item {
         anchors.fill: parent
         color: Color.background
     }
+    Row {
+        id: navigation
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.margins: 12
+        height: Style.space(38)
+        spacing: 6
+        Button {
+            text: "Overview"
+            onClicked: root.currentPage = "dashboard"
+        }
+        Button {
+            text: "Profiles"
+            onClicked: root.currentPage = "profiles"
+        }
+        Button {
+            text: "Subscriptions"
+            onClicked: {
+                root.currentPage = "profiles";
+                subscriptionManager.open();
+            }
+        }
+        Button {
+            text: "Settings"
+            onClicked: {
+                root.currentPage = "profiles";
+                settings.open();
+            }
+        }
+        Button {
+            text: "Advanced"
+            onClicked: root.currentPage = "advanced"
+        }
+    }
+    Item {
+        id: dashboard
+        anchors.top: navigation.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 18
+        visible: root.currentPage === "dashboard"
+        Column {
+            width: parent.width
+            spacing: 14
+            Text {
+                text: "Rayarchy"
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.displaySmall
+                font.bold: true
+            }
+            Text {
+                text: "Proxy manager"
+                color: Qt.darker(Color.foreground, 1.45)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+            }
+            Rectangle {
+                width: parent.width
+                height: 118
+                color: Color.popups.background
+                border.color: root.connected ? "#74d99f" : Qt.darker(Color.foreground, 1.55)
+                border.width: Math.max(1, Style.normalBorderWidth)
+                Column {
+                    anchors.fill: parent
+                    anchors.margins: 14
+                    spacing: 6
+                    Text {
+                        text: root.connected ? "CONNECTED" : (root.connecting ? "CONNECTING" : "DISCONNECTED")
+                        color: root.connected ? "#74d99f" : (root.connecting ? "#efb06a" : Color.foreground)
+                        font.family: Style.font.family
+                        font.pixelSize: Style.font.heading
+                        font.bold: true
+                    }
+                    Text {
+                        text: root.connected ? root.connectionDetail : "Select a profile to start a protected connection."
+                        color: Qt.darker(Color.foreground, 1.25)
+                        font.family: Style.font.family
+                        wrapMode: Text.WordWrap
+                        width: parent.width
+                    }
+                    Text {
+                        visible: root.connected && root.ipProtectionDetail !== ""
+                        text: root.ipProtectionDetail
+                        color: root.ipProtectionDetail === "External IP protected" ? "#74d99f" : "#efb06a"
+                    }
+                }
+            }
+            Flow {
+                width: parent.width
+                spacing: 8
+                Button {
+                    text: "Choose profile"
+                    onClicked: root.currentPage = "profiles"
+                }
+                Button {
+                    text: root.connected ? "Disconnect" : "Check external IP"
+                    enabled: root.connected || root.selectedId !== ""
+                    onClicked: root.connected ? root.rpc.call("profile.disconnect", {}, function (result, error) {
+                        root.message = error ? error.message : "Disconnected";
+                        root.refreshStatus();
+                    }) : root.checkExternalIp()
+                }
+            }
+            Text {
+                text: root.subscriptionSummary
+                visible: text !== ""
+                color: Qt.darker(Color.foreground, 1.45)
+                font.family: Style.font.family
+            }
+        }
+    }
     Loader {
         id: subscriptionStatusLoader
         sourceComponent: Component {
@@ -478,9 +593,13 @@ Item {
         }
     }
     ScrollView {
-        anchors.fill: parent
+        anchors.top: navigation.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
         anchors.margins: 12
         clip: true
+        visible: root.currentPage === "profiles" || root.currentPage === "advanced"
         contentWidth: Math.max(0, root.width - Style.space(24))
         Column {
             width: Math.max(0, root.width - Style.space(24))
