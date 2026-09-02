@@ -386,273 +386,271 @@ Item {
                     publicKey.text = profile.fields && profile.fields.public_key || "";
                     address.text = profile.fields && profile.fields.local_address || "";
                 }
-                contentItem: ScrollView {
-                    clip: true
-                    Column {
-                        spacing: 8
-                        TextField {
-                            id: uuid
-                            placeholderText: "UUID / user"
-                        }
-                        TextField {
-                            id: password
-                            placeholderText: "Password"
-                            echoMode: TextInput.Password
-                        }
-                        TextField {
-                            id: security
-                            placeholderText: "Security (tls/none)"
-                        }
-                        TextField {
-                            id: sni
-                            placeholderText: "SNI / server name"
-                        }
-                        TextField {
-                            id: network
-                            placeholderText: "Network (ws/tcp)"
-                        }
-                        TextField {
-                            id: path
-                            placeholderText: "Path"
-                        }
-                        TextField {
-                            id: method
-                            placeholderText: "Shadowsocks method"
-                        }
-                        TextField {
-                            id: obfs
-                            placeholderText: "Obfuscation / obfs password"
-                        }
-                        TextField {
-                            id: privateKey
-                            placeholderText: "WireGuard private key"
-                            echoMode: TextInput.Password
-                        }
-                        TextField {
-                            id: publicKey
-                            placeholderText: "WireGuard public key"
-                        }
-                        TextField {
-                            id: address
-                            placeholderText: "WireGuard local address"
-                        }
+                contentItem: Column {
+                    spacing: 8
+                    TextField {
+                        id: uuid
+                        placeholderText: "UUID / user"
                     }
-                    onAccepted: root.rpc.call("profile.fields.update", {
-                        profileId: protocolEditorLoader.item.profileId,
-                        fields: {
-                            user: uuid.text,
-                            password: password.text,
-                            security: security.text,
-                            sni: sni.text,
-                            type: network.text,
-                            path: path.text,
-                            method: method.text,
-                            obfs: obfs.text,
-                            private_key: privateKey.text,
-                            public_key: publicKey.text,
-                            local_address: address.text
-                        }
-                    }, function (result, error) {
-                        root.message = error ? error.message : "Protocol fields saved";
-                        if (!error) {
-                            protocolEditorLoader.item.close();
-                            root.refresh();
-                        }
-                    })
+                    TextField {
+                        id: password
+                        placeholderText: "Password"
+                        echoMode: TextInput.Password
+                    }
+                    TextField {
+                        id: security
+                        placeholderText: "Security (tls/none)"
+                    }
+                    TextField {
+                        id: sni
+                        placeholderText: "SNI / server name"
+                    }
+                    TextField {
+                        id: network
+                        placeholderText: "Network (ws/tcp)"
+                    }
+                    TextField {
+                        id: path
+                        placeholderText: "Path"
+                    }
+                    TextField {
+                        id: method
+                        placeholderText: "Shadowsocks method"
+                    }
+                    TextField {
+                        id: obfs
+                        placeholderText: "Obfuscation / obfs password"
+                    }
+                    TextField {
+                        id: privateKey
+                        placeholderText: "WireGuard private key"
+                        echoMode: TextInput.Password
+                    }
+                    TextField {
+                        id: publicKey
+                        placeholderText: "WireGuard public key"
+                    }
+                    TextField {
+                        id: address
+                        placeholderText: "WireGuard local address"
+                    }
+                }
+                onAccepted: root.rpc.call("profile.fields.update", {
+                    profileId: protocolEditorLoader.item.profileId,
+                    fields: {
+                        user: uuid.text,
+                        password: password.text,
+                        security: security.text,
+                        sni: sni.text,
+                        type: network.text,
+                        path: path.text,
+                        method: method.text,
+                        obfs: obfs.text,
+                        private_key: privateKey.text,
+                        public_key: publicKey.text,
+                        local_address: address.text
+                    }
+                }, function (result, error) {
+                    root.message = error ? error.message : "Protocol fields saved";
+                    if (!error) {
+                        protocolEditorLoader.item.close();
+                        root.refresh();
+                    }
+                })
+            }
+        }
+    }
+    Loader {
+        id: qrImageLoader
+        sourceComponent: Component {
+            Dialog {
+                modal: true
+                title: "QR code"
+                standardButtons: Dialog.Close
+                contentItem: Image {
+                    id: qrImage
+                    width: 320
+                    height: 320
+                    fillMode: Image.PreserveAspectFit
                 }
             }
         }
-        Loader {
-            id: qrImageLoader
-            sourceComponent: Component {
-                Dialog {
-                    modal: true
-                    title: "QR code"
-                    standardButtons: Dialog.Close
-                    contentItem: Image {
-                        id: qrImage
-                        width: 320
-                        height: 320
-                        fillMode: Image.PreserveAspectFit
-                    }
-                }
-            }
-        }
-        Column {
-            anchors.fill: parent
-            anchors.margins: 18
+    }
+    Column {
+        anchors.fill: parent
+        anchors.margins: 18
+        spacing: 12
+        Row {
             spacing: 12
-            Row {
-                spacing: 12
-                Text {
-                    text: "Rayarchy"
-                    color: Color.foreground
-                    font.bold: true
-                    font.pixelSize: 22
-                }
-                Text {
-                    text: root.connected ? root.connectionDetail : (root.connecting ? "Connecting…" : "Disconnected")
-                    color: root.connected ? "#74d99f" : (root.connecting ? "#efb06a" : Qt.darker(Color.foreground, 1.4))
-                    Accessible.name: text
-                }
-                Button {
-                    text: root.connected ? "Disconnect" : (root.connecting ? "Connecting…" : "Connect")
-                    enabled: (root.selectedId !== "" || root.connected) && !root.connecting
-                    onClicked: if (root.rpc)
-                        root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : {
-                            profileId: root.selectedId
-                        }, function (result, error) {
-                            if (error) {
-                                root.message = error.message || "Connection failed";
-                            } else {
-                                root.message = root.connected ? "Disconnected" : "Connected";
-                                root.refreshStatus();
-                            }
-                        })
-                }
+            Text {
+                text: "Rayarchy"
+                color: Color.foreground
+                font.bold: true
+                font.pixelSize: 22
+            }
+            Text {
+                text: root.connected ? root.connectionDetail : (root.connecting ? "Connecting…" : "Disconnected")
+                color: root.connected ? "#74d99f" : (root.connecting ? "#efb06a" : Qt.darker(Color.foreground, 1.4))
+                Accessible.name: text
             }
             Button {
-                text: root.ipCheckRunning ? "Checking IP…" : "Check external IP"
-                enabled: root.connected && !root.ipCheckRunning
-                Accessible.name: "Check external IP protection"
-                onClicked: root.checkExternalIp()
+                text: root.connected ? "Disconnect" : (root.connecting ? "Connecting…" : "Connect")
+                enabled: (root.selectedId !== "" || root.connected) && !root.connecting
+                onClicked: if (root.rpc)
+                    root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : {
+                        profileId: root.selectedId
+                    }, function (result, error) {
+                        if (error) {
+                            root.message = error.message || "Connection failed";
+                        } else {
+                            root.message = root.connected ? "Disconnected" : "Connected";
+                            root.refreshStatus();
+                        }
+                    })
             }
         }
-        Text {
-            text: root.ipProtectionDetail + (root.ipCheckedAt !== "" ? " • " + root.ipCheckedAt : "")
-            visible: root.connected && text !== ""
-            color: root.ipProtectionDetail === "External IP protected" ? "#74d99f" : "#efb06a"
+        Button {
+            text: root.ipCheckRunning ? "Checking IP…" : "Check external IP"
+            enabled: root.connected && !root.ipCheckRunning
+            Accessible.name: "Check external IP protection"
+            onClicked: root.checkExternalIp()
         }
-        TextField {
-            id: searchField
-            width: parent.width
-            placeholderText: "Search profiles…"
-            onTextChanged: {
-                root.query = text;
+    }
+    Text {
+        text: root.ipProtectionDetail + (root.ipCheckedAt !== "" ? " • " + root.ipCheckedAt : "")
+        visible: root.connected && text !== ""
+        color: root.ipProtectionDetail === "External IP protected" ? "#74d99f" : "#efb06a"
+    }
+    TextField {
+        id: searchField
+        width: parent.width
+        placeholderText: "Search profiles…"
+        onTextChanged: {
+            root.query = text;
+            root.refresh();
+        }
+    }
+    Row {
+        spacing: 8
+        ComboBox {
+            id: groupPicker
+            model: root.groups()
+            onActivated: {
+                root.groupFilter = currentIndex === 0 ? "" : currentText;
                 root.refresh();
             }
         }
-        Row {
-            spacing: 8
-            ComboBox {
-                id: groupPicker
-                model: root.groups()
-                onActivated: {
-                    root.groupFilter = currentIndex === 0 ? "" : currentText;
-                    root.refresh();
-                }
-            }
-            ComboBox {
-                model: ["manual", "name", "server", "favorites"]
-                onActivated: {
-                    root.sortMode = currentText;
-                    root.refresh();
-                }
-            }
-            CheckBox {
-                text: "Favorites"
-                checked: root.favoritesOnly
-                onToggled: {
-                    root.favoritesOnly = checked;
-                    root.refresh();
-                }
-            }
-            CheckBox {
-                text: "Healthy only"
-                checked: root.healthOnly
-                onToggled: {
-                    root.healthOnly = checked;
-                    root.refresh();
-                }
-            }
-            Button {
-                text: "Clear filters"
-                visible: root.query !== "" || root.groupFilter !== "" || root.favoritesOnly || root.healthOnly || root.sortMode !== "manual"
-                onClicked: {
-                    searchField.text = "";
-                    root.query = "";
-                    root.groupFilter = "";
-                    root.favoritesOnly = false;
-                    root.healthOnly = false;
-                    root.sortMode = "manual";
-                    groupPicker.currentIndex = 0;
-                    root.refresh();
-                }
+        ComboBox {
+            model: ["manual", "name", "server", "favorites"]
+            onActivated: {
+                root.sortMode = currentText;
+                root.refresh();
             }
         }
-        Text {
-            visible: root.profiles.length === 0
-            text: "No profiles yet. Add a profile or subscription to begin."
-            color: Color.foreground
+        CheckBox {
+            text: "Favorites"
+            checked: root.favoritesOnly
+            onToggled: {
+                root.favoritesOnly = checked;
+                root.refresh();
+            }
         }
-        Text {
-            visible: root.message !== ""
-            text: root.message
-            color: Color.accent
-            width: parent.width
-            wrapMode: Text.WordWrap
+        CheckBox {
+            text: "Healthy only"
+            checked: root.healthOnly
+            onToggled: {
+                root.healthOnly = checked;
+                root.refresh();
+            }
         }
-        ListView {
-            width: parent.width
-            height: Math.max(80, parent.height - y - 54)
-            focus: true
-            keyNavigationEnabled: true
-            activeFocusOnTab: true
-            model: root.profiles
-            onCurrentIndexChanged: if (currentIndex >= 0 && currentIndex < root.profiles.length)
-                root.selectedId = root.profiles[currentIndex].id
-            delegate: Rectangle {
-                width: ListView.view.width
-                height: 76
-                color: root.selectedId === modelData.id ? Qt.alpha(Color.accent, 0.10) : "transparent"
-                Accessible.name: modelData.name + ", " + (modelData.protocol || "profile") + (modelData.server ? ", " + modelData.server : "")
-                border.color: root.selectedId === modelData.id ? Color.accent : (ListView.view.activeFocus ? Qt.lighter(Color.foreground, 1.2) : Color.foreground)
-                border.width: root.selectedId === modelData.id ? 2 : 1
-                Row {
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    spacing: 12
-                    Column {
-                        width: Math.max(120, parent.width - openButton.implicitWidth - 12)
-                        spacing: 2
-                        Text {
-                            text: (modelData.favorite ? "★  " : "") + modelData.name
-                            color: Color.foreground
-                            font.bold: true
-                            elide: Text.ElideRight
-                            width: parent.width
-                        }
-                        Text {
-                            text: (modelData.group ? modelData.group + " • " : "") + (modelData.server || "") + (modelData.port ? ":" + modelData.port : "")
-                            color: Qt.darker(Color.foreground, 1.5)
-                            elide: Text.ElideRight
-                            width: parent.width
-                        }
-                        Text {
-                            property var health: root.bulkResults.find(function (r) {
-                                return r.profileId === modelData.id;
-                            }) || modelData.lastTest
-                            visible: health !== undefined
-                            text: health && health.ok ? "✓ Verified • " + health.latencyMs + " ms" : "✗ Failed • " + ((health && health.error) || "health check failed")
-                            color: health && health.ok ? "#74d99f" : "#ef6a6a"
-                            elide: Text.ElideRight
-                            width: parent.width
-                        }
+        Button {
+            text: "Clear filters"
+            visible: root.query !== "" || root.groupFilter !== "" || root.favoritesOnly || root.healthOnly || root.sortMode !== "manual"
+            onClicked: {
+                searchField.text = "";
+                root.query = "";
+                root.groupFilter = "";
+                root.favoritesOnly = false;
+                root.healthOnly = false;
+                root.sortMode = "manual";
+                groupPicker.currentIndex = 0;
+                root.refresh();
+            }
+        }
+    }
+    Text {
+        visible: root.profiles.length === 0
+        text: "No profiles yet. Add a profile or subscription to begin."
+        color: Color.foreground
+    }
+    Text {
+        visible: root.message !== ""
+        text: root.message
+        color: Color.accent
+        width: parent.width
+        wrapMode: Text.WordWrap
+    }
+    ListView {
+        width: parent.width
+        height: Math.max(80, parent.height - y - 54)
+        focus: true
+        keyNavigationEnabled: true
+        activeFocusOnTab: true
+        model: root.profiles
+        onCurrentIndexChanged: if (currentIndex >= 0 && currentIndex < root.profiles.length)
+            root.selectedId = root.profiles[currentIndex].id
+        delegate: Rectangle {
+            width: ListView.view.width
+            height: 76
+            color: root.selectedId === modelData.id ? Qt.alpha(Color.accent, 0.10) : "transparent"
+            Accessible.name: modelData.name + ", " + (modelData.protocol || "profile") + (modelData.server ? ", " + modelData.server : "")
+            border.color: root.selectedId === modelData.id ? Color.accent : (ListView.view.activeFocus ? Qt.lighter(Color.foreground, 1.2) : Color.foreground)
+            border.width: root.selectedId === modelData.id ? 2 : 1
+            Row {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 12
+                Column {
+                    width: Math.max(120, parent.width - openButton.implicitWidth - 12)
+                    spacing: 2
+                    Text {
+                        text: (modelData.favorite ? "★  " : "") + modelData.name
+                        color: Color.foreground
+                        font.bold: true
+                        elide: Text.ElideRight
+                        width: parent.width
                     }
-                    Button {
-                        id: openButton
-                        text: "Open"
-                        Accessible.name: "Open actions for " + modelData.name
-                        onClicked: {
-                            root.selectedId = modelData.id;
-                            details.open();
-                        }
+                    Text {
+                        text: (modelData.group ? modelData.group + " • " : "") + (modelData.server || "") + (modelData.port ? ":" + modelData.port : "")
+                        color: Qt.darker(Color.foreground, 1.5)
+                        elide: Text.ElideRight
+                        width: parent.width
+                    }
+                    Text {
+                        property var health: root.bulkResults.find(function (r) {
+                            return r.profileId === modelData.id;
+                        }) || modelData.lastTest
+                        visible: health !== undefined
+                        text: health && health.ok ? "✓ Verified • " + health.latencyMs + " ms" : "✗ Failed • " + ((health && health.error) || "health check failed")
+                        color: health && health.ok ? "#74d99f" : "#ef6a6a"
+                        elide: Text.ElideRight
+                        width: parent.width
                     }
                 }
-                Dialog {
-                    id: details
-                    title: modelData.name
-                    modal: true
+                Button {
+                    id: openButton
+                    text: "Open"
+                    Accessible.name: "Open actions for " + modelData.name
+                    onClicked: {
+                        root.selectedId = modelData.id;
+                        details.open();
+                    }
+                }
+            }
+            Dialog {
+                id: details
+                title: modelData.name
+                modal: true
                 width: Math.min(Style.space(560), Math.max(Style.space(320), root.width - Style.space(24)))
                 height: Math.min(Style.space(720), Math.max(Style.space(360), root.height - Style.space(24)))
                 standardButtons: Dialog.Close
