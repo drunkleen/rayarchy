@@ -1439,6 +1439,43 @@ mod tests {
         let _ = std::fs::remove_file(target_path);
     }
 
+    #[tokio::test]
+    async fn invalid_backup_is_rejected_without_mutating_state() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Keep".into(),
+            server: Some("keep.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        let missing = daemon
+            .dispatch("backup.import", serde_json::json!({}))
+            .await;
+        assert!(missing["error"]
+            .as_str()
+            .unwrap()
+            .contains("missing backup state"));
+        let malformed = daemon
+            .dispatch(
+                "backup.import",
+                serde_json::json!({"state":{"profiles":"bad"}}),
+            )
+            .await;
+        assert!(malformed["error"]
+            .as_str()
+            .unwrap()
+            .contains("invalid backup"));
+        let profiles = daemon.dispatch("profile.list", serde_json::json!({})).await;
+        assert_eq!(profiles.as_array().unwrap().len(), 1);
+        assert_eq!(profiles[0]["name"], "Keep");
+        let _ = std::fs::remove_file(path);
+    }
+
     #[test]
     fn routing_rules_are_compiled_into_core_config() {
         let profile = Profile {
