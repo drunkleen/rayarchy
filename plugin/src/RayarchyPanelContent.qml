@@ -41,11 +41,13 @@ Item {
             Button { text: "Proxy ping"; onClicked: root.rpc.call("test.proxy", {}, function(result,error) { root.message = error ? error.message : ((result.ok ? "Proxy reachable" : "Proxy failed") + " • " + (result.latencyMs || "n/a") + " ms") }) }
             Button { text: "Edit"; onClicked: { details.close(); nameEdit.text=modelData.name; serverEdit.text=modelData.server || ""; portEdit.text=String(modelData.port || ""); edit.open() } }
             Button { text: "Export"; onClicked: root.rpc.call("profile.export", { profileId: modelData.id }, function(result, error) { if (!error) exportText.text=result.payload || ""; exportDialog.open() }) }
+            Button { text: "QR / share"; onClicked: root.rpc.call("profile.qr", { profileId: modelData.id }, function(result, error) { if (!error) qrText.text=result.payload || ""; qrDialog.open() }) }
             Button { text: "Delete"; onClicked: { details.close(); root.rpc.call("profile.delete", { profileId: modelData.id }, function() { root.refresh() }) } }
           }
         }
         Dialog { id: edit; title: "Edit profile"; modal: true; standardButtons: Dialog.Save | Dialog.Cancel; contentItem: Column { spacing: 8; TextField { id: nameEdit; placeholderText: "Profile name" } TextField { id: serverEdit; placeholderText: "Server" } TextField { id: portEdit; placeholderText: "Port"; inputMethodHints: Qt.ImhDigitsOnly } } onAccepted: root.rpc.call("profile.update", { profile: { id:modelData.id, name:nameEdit.text, protocol:modelData.protocol, core:modelData.core, enabled:modelData.enabled, favorite:modelData.favorite, server:serverEdit.text, port:Number(portEdit.text), sourceId:modelData.sourceId, fields:modelData.fields, raw:modelData.raw } }, function() { root.refresh() }) }
         Dialog { id: exportDialog; title: "Export payload"; modal: true; standardButtons: Dialog.Close; contentItem: TextArea { id: exportText; readOnly: true; wrapMode: TextEdit.Wrap; selectByMouse: true } }
+        Dialog { id: qrDialog; title: "QR payload"; modal: true; standardButtons: Dialog.Close; contentItem: Column { spacing: 8; Text { text: "Use this payload with a QR scanner or copy it to another device."; color: Color.foreground; wrapMode: Text.WordWrap } TextArea { id: qrText; width: 400; height: 180; readOnly: true; wrapMode: TextEdit.Wrap; selectByMouse: true } } }
       }
     }
     Button { text: "Add profile"; onClicked: addDialog.open() }

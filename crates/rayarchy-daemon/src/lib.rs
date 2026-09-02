@@ -228,6 +228,14 @@ impl Daemon {
                     .map(|p| serde_json::json!({"profileId":p.id,"name":p.name,"payload":p.raw.clone().unwrap_or_else(|| serde_json::to_string(p).unwrap_or_default())}))
                     .unwrap_or_else(|| serde_json::json!({"error":"profile not found"}))
             }
+            "profile.qr" => {
+                let id = params["profileId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                self.db.lock().await.profiles.iter().find(|p| Some(p.id) == id)
+                    .map(|p| serde_json::json!({"payload":p.raw.clone().unwrap_or_else(|| serde_json::to_string(p).unwrap_or_default()),"format":"text"}))
+                    .unwrap_or_else(|| serde_json::json!({"error":"profile not found"}))
+            }
             "import.preview" => {
                 let input = params["input"].as_str().unwrap_or("");
                 match rayarchy_core::import::parse_input(input) {
