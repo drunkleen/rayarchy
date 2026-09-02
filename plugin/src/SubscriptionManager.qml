@@ -7,6 +7,8 @@ Dialog {
     property var rpc: null
     property var items: []
     property string message: ""
+    property string pendingDeleteId: ""
+    property string pendingDeleteName: ""
     modal: true
     title: "Subscriptions"
     standardButtons: Dialog.Close
@@ -78,14 +80,11 @@ Dialog {
                 Button {
                     text: "Delete"
                     Accessible.name: "Delete " + modelData.name
-                    onClicked: root.rpc.call("subscription.delete", {
-                        subscriptionId: modelData.id
-                    }, function (result, error) {
-                        if (error)
-                            root.message = error.message;
-                        else
-                            root.load();
-                    })
+                    onClicked: {
+                        root.pendingDeleteId = modelData.id;
+                        root.pendingDeleteName = modelData.name;
+                        deleteConfirm.open();
+                    }
                 }
             }
         }
@@ -120,6 +119,30 @@ Dialog {
                 }
             })
         }
+    }
+
+    Dialog {
+        id: deleteConfirm
+        modal: true
+        title: "Delete subscription?"
+        standardButtons: Dialog.Yes | Dialog.No
+        contentItem: Text {
+            text: "Delete “" + root.pendingDeleteName + "”? This cannot be undone."
+            color: Color.foreground
+            wrapMode: Text.WordWrap
+        }
+        onAccepted: root.rpc.call("subscription.delete", {
+            subscriptionId: root.pendingDeleteId
+        }, function (result, error) {
+            if (error)
+                root.message = error.message;
+            else {
+                root.message = "Subscription deleted";
+                root.load();
+            }
+            root.pendingDeleteId = "";
+            root.pendingDeleteName = "";
+        })
     }
 
     Dialog {
