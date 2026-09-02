@@ -565,6 +565,9 @@ impl Daemon {
                 let id = params["profileId"]
                     .as_str()
                     .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                if id.is_some() && *self.connected.lock().await == id {
+                    return serde_json::json!({"error":"disconnect the active profile before deleting it"});
+                }
                 self.db.lock().await.profiles.retain(|p| Some(p.id) != id);
                 let _ = self.save().await;
                 serde_json::json!({"ok":true})
@@ -916,6 +919,36 @@ mod tests {
             .await;
         let reordered = daemon.dispatch("profile.list", serde_json::json!({})).await;
         assert_eq!(reordered[0]["id"], alpha_id.to_string());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn active_profile_cannot_be_deleted() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Active".into(),
+            ..Default::default()
+        };
+        let id = profile.id;
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        *daemon.connected.lock().await = Some(id);
+        let result = daemon
+            .dispatch("profile.delete", serde_json::json!({"profileId":id}))
+            .await;
+        assert!(result.get("error").is_some());
+        assert_eq!(
+            daemon
+                .dispatch("profile.list", serde_json::json!({}))
+                .await
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
         let _ = std::fs::remove_file(path);
     }
 
