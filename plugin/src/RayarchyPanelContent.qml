@@ -1336,6 +1336,17 @@ Item {
                 onClicked: advancedProfile.open()
             }
             Button {
+                text: "Remove duplicates"
+                onClicked: root.rpc.call("profile.duplicates.remove", {}, function (result, error) {
+                    if (error)
+                        root.message = error.message;
+                    else {
+                        root.showSuccess("Removed " + result.removed + " duplicate profile(s)");
+                        root.refresh();
+                    }
+                })
+            }
+            Button {
                 text: "Subscriptions"
                 Accessible.name: "Manage subscriptions"
                 onClicked: {
@@ -1723,6 +1734,36 @@ Item {
                     }, function (result, error) {
                         addDialog.previewText = error ? error.message : JSON.stringify(result, null, 2);
                     })
+            }
+            Row {
+                spacing: Style.space(8)
+                Button {
+                    text: "Read clipboard"
+                    onClicked: root.rpc.call("import.clipboard", {}, function (result, error) {
+                        if (error) {
+                            root.message = error.message;
+                            return;
+                        }
+                        input.text = result.input;
+                        addDialog.previewText = JSON.stringify(result.profiles, null, 2);
+                    })
+                }
+                TextField {
+                    id: qrImagePath
+                    width: Style.space(300)
+                    placeholderText: "QR image path"
+                }
+                Button {
+                    text: "Decode image"
+                    onClicked: root.rpc.call("import.qr.image", { path: qrImagePath.text }, function (result, error) {
+                        if (error) {
+                            root.message = error.message;
+                            return;
+                        }
+                        input.text = result.input;
+                        addDialog.previewText = JSON.stringify(result.profiles, null, 2);
+                    })
+                }
             }
             TextArea {
                 width: 520

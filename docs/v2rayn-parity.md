@@ -24,6 +24,15 @@ selection. Proxy chains preserve hop order and compile to sing-box detours.
 Groups and chains reject missing, disabled, duplicate, self-referential, or
 nested members through the same RPC validation used by the QML editor.
 
+## Import sources
+
+`import.clipboard` reads Wayland text through `wl-paste`; `import.qr.image`
+decodes a bounded regular image file through `zbarimg`. Both return the decoded
+input and parsed preview without persisting anything. The existing
+`import.commit` call remains the only import mutation, so the UI always previews
+before saving. External command failures and unsupported payloads are returned
+to QML as visible RPC errors, without logging credentials.
+
 ## Profile list behavior
 
 `profile.list` accepts `query`, `group`, `sort`, `favoritesOnly`, and

@@ -1056,6 +1056,52 @@ impl Daemon {
                     Err(error) => serde_json::json!({"profiles":[],"errors":[error]}),
                 }
             }
+            "import.clipboard" => {
+                let output = tokio::process::Command::new("wl-paste")
+                    .args(["--no-newline", "--type", "text"])
+                    .output()
+                    .await;
+                match output {
+                    Ok(output) if output.status.success() => {
+                        let input = String::from_utf8_lossy(&output.stdout);
+                        match rayarchy_core::import::parse_input(&input) {
+                            Ok(profiles) => serde_json::json!({"input":input,"profiles":profiles}),
+                            Err(error) => serde_json::json!({"error":error}),
+                        }
+                    }
+                    Ok(_) => serde_json::json!({"error":"clipboard does not contain text"}),
+                    Err(_) => serde_json::json!({"error":"wl-paste is not installed"}),
+                }
+            }
+            "import.qr.image" => {
+                let Some(path) = params["path"].as_str().map(std::path::PathBuf::from) else {
+                    return serde_json::json!({"error":"image path is required"});
+                };
+                let Ok(metadata) = std::fs::metadata(&path) else {
+                    return serde_json::json!({"error":"image was not found"});
+                };
+                if !metadata.is_file() || metadata.len() > 20 * 1024 * 1024 {
+                    return serde_json::json!({"error":"QR image must be a regular file no larger than 20 MiB"});
+                }
+                let output = tokio::process::Command::new("zbarimg")
+                    .args(["--quiet", "--raw"])
+                    .arg(&path)
+                    .output()
+                    .await;
+                match output {
+                    Ok(output) if output.status.success() => {
+                        let input = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                        match rayarchy_core::import::parse_input(&input) {
+                            Ok(profiles) => serde_json::json!({"input":input,"profiles":profiles}),
+                            Err(error) => serde_json::json!({"error":error}),
+                        }
+                    }
+                    Ok(_) => {
+                        serde_json::json!({"error":"no supported QR payload was found in the image"})
+                    }
+                    Err(_) => serde_json::json!({"error":"zbarimg is not installed"}),
+                }
+            }
             "import.commit" => {
                 let input = params["input"].as_str().unwrap_or("");
                 match rayarchy_core::import::parse_input(input) {
@@ -1259,6 +1305,27 @@ impl Daemon {
                 drop(db);
                 let _ = self.save().await;
                 serde_json::json!({"profileId":copy.id})
+            }
+            "profile.duplicates.remove" => {
+                if self.connected.lock().await.is_some() {
+                    return serde_json::json!({"error":"disconnect before removing duplicate profiles"});
+                }
+                let mut db = self.db.lock().await;
+                let before = db.profiles.len();
+                let mut unique: Vec<Profile> = Vec::with_capacity(before);
+                for profile in db.profiles.drain(..) {
+                    if !unique
+                        .iter()
+                        .any(|existing| profiles_equivalent(existing, &profile))
+                    {
+                        unique.push(profile);
+                    }
+                }
+                db.profiles = unique;
+                let removed = before - db.profiles.len();
+                drop(db);
+                let _ = self.save().await;
+                serde_json::json!({"removed":removed})
             }
             "profile.connect.cancel" => {
                 let _ = self.disconnect_profile().await;
@@ -1571,6 +1638,37 @@ mod tests {
                 .await["error"],
             format!("member profile {} was not found", invalid.members[0])
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn duplicate_cleanup_and_qr_input_validation_are_safe() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Duplicate".into(),
+            server: Some("duplicate.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        let mut copy = profile.clone();
+        copy.id = uuid::Uuid::new_v4();
+        daemon.db.lock().await.profiles.extend([profile, copy]);
+        assert_eq!(
+            daemon
+                .dispatch("profile.duplicates.remove", serde_json::json!({}))
+                .await["removed"],
+            1
+        );
+        assert_eq!(daemon.db.lock().await.profiles.len(), 1);
+        assert!(daemon
+            .dispatch(
+                "import.qr.image",
+                serde_json::json!({"path":"/definitely/missing/rayarchy.png"})
+            )
+            .await["error"]
+            .is_string());
         let _ = std::fs::remove_file(path);
     }
 

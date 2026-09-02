@@ -32,6 +32,12 @@ the complete parity checklist are in `TODO.md` and `instructions.md`.
 Open **Add profile**, paste a v2rayN URI, JSON, YAML, WireGuard configuration,
 or subscription payload, then choose **Preview parsed profiles**. Rayarchy
 shows the parsed records and parser errors before **OK** commits anything.
+The same dialog can read text from the Wayland clipboard or decode a QR image
+with `zbarimg`; neither path persists profiles before the preview is accepted.
+
+Use **Advanced profile** for AnyTLS, Naive, full custom core JSON, latency or
+fallback policy groups, and ordered sing-box proxy chains. Group and chain
+members are profile UUIDs shown by the profile export/diagnostic surfaces.
 
 Use **Backup** to export the complete local state as JSON. Restore accepts only
 valid Rayarchy state and refuses while a profile is connected; malformed input
