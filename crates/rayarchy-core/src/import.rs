@@ -28,14 +28,15 @@ pub fn parse_uri(input: &str) -> Result<Profile, String> {
     if host.is_empty() {
         return Err("URI is missing server".into());
     }
-    let mut profile = Profile::default();
-    profile.protocol = protocol;
-    profile.name = format!("{scheme} {host}:{port}");
-    profile.server = Some(host.trim_matches(['[', ']']).to_string());
-    profile.port = Some(port);
-    profile.raw = Some(input.to_string());
-    profile.fields = serde_json::json!({"authority": authority});
-    Ok(profile)
+    Ok(Profile {
+        protocol,
+        name: format!("{scheme} {host}:{port}"),
+        server: Some(host.trim_matches(['[', ']']).to_string()),
+        port: Some(port),
+        raw: Some(input.to_string()),
+        fields: serde_json::json!({"authority": authority}),
+        ..Profile::default()
+    })
 }
 
 #[cfg(test)]
