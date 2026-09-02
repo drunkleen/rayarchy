@@ -30,6 +30,23 @@ async fn main() -> anyhow::Result<()> {
         ),
         "ip" => print_json(daemon.dispatch("test.ip", serde_json::json!({})).await),
         "history" => print_json(daemon.dispatch("test.history", serde_json::json!({})).await),
+        "bulk" => {
+            let ids = args.map(serde_json::Value::String).collect::<Vec<_>>();
+            print_json(
+                daemon
+                    .dispatch("test.bulk", serde_json::json!({"profileIds":ids}))
+                    .await,
+            );
+        }
+        "diagnostics" => {
+            let status = daemon
+                .dispatch("system.status", serde_json::json!({}))
+                .await;
+            let capabilities = daemon
+                .dispatch("system.capabilities", serde_json::json!({}))
+                .await;
+            print_json(serde_json::json!({"status":status,"capabilities":capabilities}));
+        }
         "import" => {
             let input = args.collect::<Vec<_>>().join(" ");
             print_json(
@@ -39,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         "help" | "--help" | "-h" => {
-            println!("rayarchy [status|profiles|connect ID|disconnect|ip|history|import URI]")
+            println!("rayarchy [status|profiles|connect ID|disconnect|ip|history|bulk ID...|diagnostics|import URI]")
         }
         command => {
             eprintln!("unknown command: {command}");
