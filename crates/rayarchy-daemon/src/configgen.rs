@@ -117,6 +117,15 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                 }
                 value["streamSettings"] = stream;
             }
+            if field("security") != "tls" && field("tls") != "tls" {
+                let network = field("type");
+                if network == "ws" {
+                    value["streamSettings"] = serde_json::json!({"network":"ws","wsSettings":{"path":field("path"),"headers":{"Host":field("host")}}});
+                }
+                if network == "grpc" {
+                    value["streamSettings"] = serde_json::json!({"network":"grpc","grpcSettings":{"serviceName":field("serviceName")}});
+                }
+            }
             value
         }
         Core::Auto => unreachable!(),
@@ -260,6 +269,35 @@ mod tests {
         assert_eq!(
             config["outbounds"][0]["streamSettings"]["wsSettings"]["path"],
             "/x"
+        );
+    }
+
+    #[test]
+    fn xray_trojan_and_shadowsocks_use_server_credentials() {
+        let mut trojan = Profile {
+            protocol: Protocol::Trojan,
+            server: Some("t.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        trojan.fields = serde_json::json!({"password":"secret"});
+        let config = build(&trojan, Core::Xray, "127.0.0.1", 1080);
+        assert_eq!(
+            config["outbounds"][0]["settings"]["servers"][0]["password"],
+            "secret"
+        );
+        let mut shadowsocks = Profile {
+            protocol: Protocol::Shadowsocks,
+            server: Some("s.example".into()),
+            port: Some(8388),
+            ..Default::default()
+        };
+        shadowsocks.fields =
+            serde_json::json!({"method":"2022-blake3-aes-128-gcm","password":"secret"});
+        let ss = build(&shadowsocks, Core::Xray, "127.0.0.1", 1080);
+        assert_eq!(
+            ss["outbounds"][0]["settings"]["servers"][0]["method"],
+            "2022-blake3-aes-128-gcm"
         );
     }
 }
