@@ -112,6 +112,20 @@ impl Daemon {
         }
     }
 
+    async fn set_subscription_error(&self, id: uuid::Uuid, error: Option<String>) {
+        if let Some(subscription) = self
+            .db
+            .lock()
+            .await
+            .subscriptions
+            .iter_mut()
+            .find(|s| s.id == id)
+        {
+            subscription.last_error = error;
+        }
+        let _ = self.save().await;
+    }
+
     /// Start the unprivileged subscription refresh loop. The loop is deliberately
     /// coarse (one hour) so a bad source cannot cause a request storm.
     pub fn spawn_subscription_scheduler(self: &Arc<Self>) {
@@ -767,8 +781,19 @@ impl Daemon {
                     .await
                 {
                     Ok(v) if v.status.success() => v,
-                    Ok(_) => return serde_json::json!({"error":"subscription download failed"}),
-                    Err(e) => return serde_json::json!({"error":e.to_string()}),
+                    Ok(_) => {
+                        self.set_subscription_error(
+                            id,
+                            Some("subscription download failed".into()),
+                        )
+                        .await;
+                        return serde_json::json!({"error":"subscription download failed"});
+                    }
+                    Err(e) => {
+                        let error = e.to_string();
+                        self.set_subscription_error(id, Some(error.clone())).await;
+                        return serde_json::json!({"error":error});
+                    }
                 };
                 let body = String::from_utf8_lossy(&output.stdout);
                 let parsed: Vec<Profile> = rayarchy_core::import::parse_input(&body)
@@ -780,6 +805,11 @@ impl Daemon {
                     })
                     .collect();
                 if parsed.is_empty() {
+                    self.set_subscription_error(
+                        id,
+                        Some("subscription contained no supported profiles".into()),
+                    )
+                    .await;
                     return serde_json::json!({"error":"subscription contained no supported profiles"});
                 }
                 let count = parsed.len();
@@ -788,6 +818,7 @@ impl Daemon {
                 db.profiles.extend(parsed);
                 drop(db);
                 let _ = self.save().await;
+                self.set_subscription_error(id, None).await;
                 serde_json::json!({"updated":count})
             }
             _ => serde_json::json!({"error":"method not found"}),
