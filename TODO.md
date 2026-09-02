@@ -3,6 +3,7 @@
 ## Foundation
 - [ ] Omarchy manifest, bar widget, panel, and theme tokens
 - [ ] Rust workspace, JSON-RPC Unix socket, user systemd service
+- [x] User service and source-checkout setup installer
 - [ ] Reproducible release archive and checksum installer
 
 ## v2rayN Linux parity

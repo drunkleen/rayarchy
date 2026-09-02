@@ -10,5 +10,11 @@ Install the shell plugin:
 omarchy plugin add https://github.com/drunkleen/rayarchy --enable
 ```
 
+Install and start the unprivileged backend from the cloned plugin checkout:
+
+```sh
+~/.config/omarchy/plugins/com.drunkleen.rayarchy/setup.sh
+```
+
 Then run the backend setup from the installed checkout. Development status and
 the complete parity checklist are in `TODO.md` and `instructions.md`.

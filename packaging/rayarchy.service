@@ -1,0 +1,13 @@
+[Unit]
+Description=Rayarchy proxy manager daemon
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/rayarchy-daemon
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
