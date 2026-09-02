@@ -364,8 +364,19 @@ impl Daemon {
             .await
             .map_err(|e| e.to_string())?;
         if !health.status.success() {
+            let detail = String::from_utf8_lossy(&health.stderr)
+                .trim()
+                .chars()
+                .take(240)
+                .collect::<String>();
             let _ = self.disconnect_profile().await;
-            return Err("proxy health check failed; connection was not activated".into());
+            let message = if detail.is_empty() {
+                "proxy health check failed; connection was not activated".to_string()
+            } else {
+                format!("proxy health check failed: {detail}")
+            };
+            self.log(message.clone()).await;
+            return Err(message);
         }
         if settings.connection_mode == rayarchy_core::protocol::ConnectionMode::SystemProxy {
             match sysproxy::apply("127.0.0.1", settings.local_port) {
