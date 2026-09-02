@@ -19,6 +19,7 @@ Item {
   property bool favoritesOnly: false
   property bool healthOnly: false
   property bool connected: false
+  property string connectionDetail: ""
   property string selectedId: ""
   property string message: ""
   property string subscriptionSummary: ""
@@ -36,7 +37,7 @@ Item {
       else root.profiles = root.healthOnly ? (result || []).filter(function(profile) { return profile.lastTest && profile.lastTest.ok }) : (result || [])
     })
     root.rpc.call("system.status", {}, function(result, error) {
-      if (!error) { root.connected = !!result.connected; root.selectedId = result.profileId || root.selectedId }
+      if (!error) { root.connected = !!result.connected; root.selectedId = result.profileId || root.selectedId; root.connectionDetail = result.connected ? ((result.profileName || "Profile") + " • " + (result.core || "core") + " • 127.0.0.1:" + (result.localPort || "")) : "" }
     })
   }
   function groups() {
@@ -99,6 +100,7 @@ Item {
       if (!error) {
         root.connected = !!result.connected
         if (result.profileId) root.selectedId = result.profileId
+        root.connectionDetail = result.connected ? ((result.profileName || "Profile") + " • " + (result.core || "core") + " • 127.0.0.1:" + (result.localPort || "")) : ""
       }
     })
   }
@@ -126,7 +128,7 @@ Item {
   Loader { id: qrImageLoader; sourceComponent: Component { Dialog { modal: true; title: "QR code"; standardButtons: Dialog.Close; contentItem: Image { id: qrImage; width: 320; height: 320; fillMode: Image.PreserveAspectFit } } } }
   Column {
     anchors.fill: parent; anchors.margins: 18; spacing: 12
-    Row { spacing: 12; Text { text: "Rayarchy"; color: Color.foreground; font.bold: true; font.pixelSize: 22 } Button { text: root.connected ? "Disconnect" : "Connect"; enabled: root.selectedId !== "" || root.connected; onClicked: if (root.rpc) root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : { profileId: root.selectedId }, function(result, error) { if (error) { root.message = error.message || "Connection failed" } else { root.message = root.connected ? "Disconnected" : "Connected"; root.refreshStatus() } }) } }
+    Row { spacing: 12; Text { text: "Rayarchy"; color: Color.foreground; font.bold: true; font.pixelSize: 22 } Text { text: root.connected ? root.connectionDetail : "Disconnected"; color: root.connected ? "#74d99f" : Qt.darker(Color.foreground, 1.4); Accessible.name: text } Button { text: root.connected ? "Disconnect" : "Connect"; enabled: root.selectedId !== "" || root.connected; onClicked: if (root.rpc) root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : { profileId: root.selectedId }, function(result, error) { if (error) { root.message = error.message || "Connection failed" } else { root.message = root.connected ? "Disconnected" : "Connected"; root.refreshStatus() } }) } }
     TextField { id: searchField; width: parent.width; placeholderText: "Search profiles…"; onTextChanged: { root.query = text; root.refresh() } }
     Row {
       spacing: 8

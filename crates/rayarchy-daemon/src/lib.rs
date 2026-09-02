@@ -441,7 +441,25 @@ impl Daemon {
             "system.ping" => serde_json::json!({"ok":true}),
             "system.status" => {
                 let profile_id = *self.connected.lock().await;
-                serde_json::json!({"connected": profile_id.is_some(), "profileId": profile_id, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
+                let (profile_name, core, local_port) = {
+                    let db = self.db.lock().await;
+                    let name = profile_id.and_then(|id| {
+                        db.profiles
+                            .iter()
+                            .find(|profile| profile.id == id)
+                            .map(|profile| profile.name.clone())
+                    });
+                    let selected_core = profile_id.and_then(|id| {
+                        db.profiles
+                            .iter()
+                            .find(|profile| profile.id == id)
+                            .map(|profile| {
+                                configgen::choose_core(profile, db.settings.preferred_core)
+                            })
+                    });
+                    (name, selected_core, db.settings.local_port)
+                };
+                serde_json::json!({"connected": profile_id.is_some(), "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
             }
             "system.capabilities" => {
                 let settings = self.db.lock().await.settings.clone();
