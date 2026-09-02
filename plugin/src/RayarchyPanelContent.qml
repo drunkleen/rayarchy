@@ -371,7 +371,7 @@ Item {
                 text: "Rayarchy"
                 color: Color.foreground
                 font.family: Style.font.family
-                font.pixelSize: Style.font.displaySmall
+                font.pixelSize: Style.font.heading
                 font.bold: true
             }
             Text {
