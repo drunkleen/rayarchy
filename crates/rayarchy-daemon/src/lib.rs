@@ -1,4 +1,5 @@
 use rayarchy_core::{Profile, RoutingRule, Settings, Subscription};
+use std::collections::HashMap;
 use std::{
     path::PathBuf,
     sync::{
@@ -109,6 +110,62 @@ impl Daemon {
         if logs.len() > 500 {
             logs.remove(0);
         }
+    }
+
+    /// Start the unprivileged subscription refresh loop. The loop is deliberately
+    /// coarse (one hour) so a bad source cannot cause a request storm.
+    pub fn spawn_subscription_scheduler(self: &Arc<Self>) {
+        let daemon = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut refreshed: HashMap<uuid::Uuid, std::time::Instant> = HashMap::new();
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+            ticker.tick().await;
+            loop {
+                let now = std::time::Instant::now();
+                let subscriptions = daemon.db.lock().await.subscriptions.clone();
+                for subscription in subscriptions {
+                    if !subscription.enabled
+                        || matches!(
+                            subscription.auto_update,
+                            rayarchy_core::model::AutoUpdate::Off
+                        )
+                    {
+                        continue;
+                    }
+                    let interval = match subscription.auto_update {
+                        rayarchy_core::model::AutoUpdate::Startup => {
+                            std::time::Duration::from_secs(u64::MAX / 2)
+                        }
+                        rayarchy_core::model::AutoUpdate::Daily => {
+                            std::time::Duration::from_secs(86_400)
+                        }
+                        rayarchy_core::model::AutoUpdate::Every6Hours => {
+                            std::time::Duration::from_secs(21_600)
+                        }
+                        rayarchy_core::model::AutoUpdate::Off => continue,
+                    };
+                    if refreshed
+                        .get(&subscription.id)
+                        .is_some_and(|last| now.duration_since(*last) < interval)
+                    {
+                        continue;
+                    }
+                    let result = daemon
+                        .dispatch(
+                            "subscription.refresh",
+                            serde_json::json!({"subscriptionId":subscription.id}),
+                        )
+                        .await;
+                    refreshed.insert(subscription.id, now);
+                    if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
+                        daemon
+                            .log(format!("subscription refresh failed: {error}"))
+                            .await;
+                    }
+                }
+                ticker.tick().await;
+            }
+        });
     }
 
     async fn connect_profile(self: &Arc<Self>, id: uuid::Uuid) -> Result<(), String> {

@@ -10,5 +10,6 @@ async fn main() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
     println!("rayarchy daemon ready");
+    d.spawn_subscription_scheduler();
     rayarchy_daemon::server::serve(d, runtime.join("rayarchy/rayarchy.sock")).await
 }
