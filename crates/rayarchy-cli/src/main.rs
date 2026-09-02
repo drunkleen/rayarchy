@@ -56,6 +56,18 @@ async fn main() -> anyhow::Result<()> {
             }
             print_json(result);
         }
+        "best" => {
+            let profiles = daemon.dispatch("profile.list", serde_json::json!({})).await;
+            let best = profiles.as_array().and_then(|rows| {
+                rows.iter()
+                    .filter(|row| row["lastTest"]["ok"].as_bool() == Some(true))
+                    .min_by_key(|row| row["lastTest"]["latencyMs"].as_u64().unwrap_or(u64::MAX))
+            });
+            print_json(
+                best.cloned()
+                    .unwrap_or_else(|| serde_json::json!({"error":"no recently verified profile"})),
+            );
+        }
         "diagnostics" => {
             print_json(
                 daemon
@@ -80,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         "help" | "--help" | "-h" => {
-            println!("rayarchy [status|profiles|connect ID|disconnect|ip|history|bulk ID...|bulk-proxy ID...|diagnostics|validate ID|import URI]")
+            println!("rayarchy [status|profiles|connect ID|disconnect|ip|history|bulk ID...|bulk-proxy ID...|best|diagnostics|validate ID|import URI]")
         }
         command => {
             eprintln!("unknown command: {command}");
