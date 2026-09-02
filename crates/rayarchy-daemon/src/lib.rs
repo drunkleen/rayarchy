@@ -1363,6 +1363,22 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
+    #[tokio::test]
+    async fn dns_and_lan_settings_persist_across_restart() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let result = daemon.dispatch("settings.update", serde_json::json!({"settings":{"connectionMode":"local","preferredCore":"auto","localPort":1080,"killSwitch":false,"dnsLeakProtection":false,"lanBypass":false}})).await;
+        assert_eq!(result["ok"], true);
+        let restarted = Daemon::new(path.clone()).unwrap();
+        let settings = restarted
+            .dispatch("settings.get", serde_json::json!({}))
+            .await;
+        assert_eq!(settings["dnsLeakProtection"], false);
+        assert_eq!(settings["lanBypass"], false);
+        let _ = std::fs::remove_file(path);
+    }
+
     #[test]
     fn routing_rules_are_compiled_into_core_config() {
         let profile = Profile {
