@@ -17,6 +17,38 @@ fn command_exists(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+async fn validate_core_config(
+    core: rayarchy_core::protocol::Core,
+    path: &std::path::Path,
+) -> Result<(), String> {
+    let bin = if core == rayarchy_core::protocol::Core::SingBox {
+        "sing-box"
+    } else {
+        "xray"
+    };
+    let args: &[&str] = if core == rayarchy_core::protocol::Core::SingBox {
+        &["check", "-c"]
+    } else {
+        &["run", "-test", "-c"]
+    };
+    let output = tokio::process::Command::new(bin)
+        .args(args)
+        .arg(path)
+        .output()
+        .await
+        .map_err(|e| format!("could not validate {bin} config: {e}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if detail.is_empty() {
+            format!("{bin} rejected the generated configuration")
+        } else {
+            format!("{bin} rejected the generated configuration: {detail}")
+        })
+    }
+}
+
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Database {
     profiles: Vec<Profile>,
@@ -121,6 +153,7 @@ impl Daemon {
         } else {
             "xray"
         };
+        validate_core_config(core, &self.config_path).await?;
         let child = tokio::process::Command::new(bin)
             .args(["run", "-c"])
             .arg(&self.config_path)
@@ -208,6 +241,38 @@ impl Daemon {
             }
             "system.capabilities" => {
                 serde_json::json!({"xray":command_exists("xray"),"singBox":command_exists("sing-box"),"systemProxy":true,"tun":false})
+            }
+            "core.validate" => {
+                let id = params["profileId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let (profile, settings) = {
+                    let db = self.db.lock().await;
+                    (
+                        db.profiles.iter().find(|p| Some(p.id) == id).cloned(),
+                        db.settings.clone(),
+                    )
+                };
+                let Some(profile) = profile else {
+                    return serde_json::json!({"error":"profile not found"});
+                };
+                let core = configgen::choose_core(&profile, settings.preferred_core);
+                let mut config = configgen::build(&profile, core, "127.0.0.1", settings.local_port);
+                let rules = self.db.lock().await.routing.clone();
+                configgen::apply_rules(&mut config, core, &rules);
+                let path = std::env::temp_dir()
+                    .join(format!("rayarchy-validate-{}.json", uuid::Uuid::new_v4()));
+                if let Err(error) =
+                    std::fs::write(&path, serde_json::to_vec(&config).unwrap_or_default())
+                {
+                    return serde_json::json!({"error":error.to_string()});
+                }
+                let result = validate_core_config(core, &path).await;
+                let _ = std::fs::remove_file(&path);
+                match result {
+                    Ok(()) => serde_json::json!({"ok":true,"core":core}),
+                    Err(error) => serde_json::json!({"error":error}),
+                }
             }
             "system.logs" => {
                 let limit = params["limit"].as_u64().unwrap_or(200).min(500) as usize;
