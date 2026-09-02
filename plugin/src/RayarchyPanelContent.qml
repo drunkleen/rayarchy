@@ -214,6 +214,7 @@ Item {
           contentItem: Column {
             spacing: 8
             Text { text: modelData.protocol + "  " + (modelData.server || "") + ":" + (modelData.port || ""); color: Color.foreground }
+            Text { text: modelData.lastTest ? (modelData.lastTest.ok ? "Verified " + modelData.lastTest.latencyMs + " ms • " + new Date(Number(modelData.lastTest.timestamp || 0) * 1000).toLocaleString() : "Last health check failed • " + (modelData.lastTest.error || "unknown error")) : "No recent verified health result"; color: modelData.lastTest && modelData.lastTest.ok ? "#74d99f" : "#efb06a"; wrapMode: Text.WordWrap }
             Button { text: "Connect this profile"; enabled: !root.connected; onClicked: root.rpc.call("profile.connect", { profileId:modelData.id }, function(result,error) { if (error) root.message = error.message || "Connection failed"; else { root.message = "Connection established"; root.refreshStatus(); details.close() } }) }
             Button { text: root.diagnosticRunning ? "Testing…" : "TCP ping"; enabled: !root.diagnosticRunning; onClicked: root.runDiagnostic("test.tcp", { host:modelData.server || "", port:modelData.port || 443 }, "TCP test") }
             Button { text: "Validate core config"; onClicked: root.rpc.call("core.validate", { profileId:modelData.id }, function(result,error) { root.message = error ? error.message : (result.ok ? "Configuration accepted by " + result.core : "Configuration rejected") }) }
