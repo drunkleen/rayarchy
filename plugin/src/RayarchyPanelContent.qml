@@ -182,11 +182,11 @@ Item {
       }
     }
     Button { text: "Add profile"; onClicked: addDialog.open() }
-    Button { text: "Subscriptions"; onClicked: { root.refreshSubscriptions(); subscriptions.open() } }
+    Button { text: "Subscriptions"; Accessible.name: "Manage subscriptions"; onClicked: { root.refreshSubscriptions(); subscriptions.open() } }
     Button { text: "Subscription status"; onClicked: { root.rpc.call("subscription.list", {}, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); if (!error) root.refreshSubscriptions(); subscriptionStatusLoader.item.open() }) } }
     Button { text: "Refresh history"; onClicked: { root.refreshSubscriptions(); subscriptionHistory.open() } }
-    Button { text: root.subscriptionRefreshing ? "Refreshing subscriptions…" : "Refresh all subscriptions"; enabled: !root.subscriptionRefreshing; onClicked: refreshAllSubscriptions() }
-    Button { text: "Bulk TCP test"; onClicked: { root.rpc.call("test.bulk", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); subscriptionStatusLoader.item.open() }) } }
+    Button { text: root.subscriptionRefreshing ? "Refreshing subscriptions…" : "Refresh all subscriptions"; Accessible.name: "Refresh all subscriptions"; enabled: !root.subscriptionRefreshing; onClicked: refreshAllSubscriptions() }
+    Button { text: "Bulk TCP test"; Accessible.name: "Test TCP connectivity for all profiles"; onClicked: { root.rpc.call("test.bulk", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : JSON.stringify(result, null, 2); subscriptionStatusLoader.item.open() }) } }
     Button { text: "Clear all test history"; onClicked: clearHistoryConfirm.open() }
     Button { text: "Test all proxy connections"; onClicked: { root.rpc.call("test.bulk.proxy", { profileIds: root.profiles.map(function(p) { return p.id }) }, function(result, error) { if (!error) root.bulkResults = result.results || []; subscriptionStatusLoader.item.contentItem.children[0].text = error ? error.message : root.formatBulkResults(root.bulkResults); subscriptionStatusLoader.item.open() }) } }
     Button { text: "Use best working profile"; enabled: root.bulkResults.some(function(r) { return r.ok }); onClicked: { var candidates = root.bulkResults.filter(function(r) { return r.ok }).sort(function(a, b) { return Number(a.latencyMs || 999999) - Number(b.latencyMs || 999999) }); if (candidates.length) { root.selectedId = candidates[0].profileId; root.message = "Selected " + candidates[0].name + " (" + candidates[0].latencyMs + " ms)" } } }
@@ -195,9 +195,9 @@ Item {
     Button { text: "Connect selected profile"; enabled: root.selectedId !== "" && !root.connected; onClicked: { root.rpc.call("profile.connect", { profileId: root.selectedId }, function(result, error) { root.message = error ? error.message : "Connection established"; if (!error) root.refreshStatus(); subscriptionStatusLoader.item.close() }) } }
     Button { text: "Cancel bulk test"; onClicked: root.rpc.call("test.bulk.cancel", {}, function(result, error) { root.message = error ? error.message : "Bulk test cancellation requested" }) }
     Text { text: root.subscriptionSummary; visible: text !== ""; color: root.subscriptionSummary.indexOf("errors") >= 0 ? "#ef6a6a" : Qt.darker(Color.foreground, 1.5) }
-    Button { text: "Settings"; onClicked: settings.open() }
+    Button { text: "Settings"; Accessible.name: "Open Rayarchy settings"; onClicked: settings.open() }
     Button { text: "Logs"; onClicked: { if (root.rpc) root.rpc.call("system.logs", {limit:200}, function(result,error) { logsText.text=error ? error.message : (result.lines || []).join("\n"); logs.open() }) } }
-    Button { text: "Routing"; onClicked: routing.open() }
+    Button { text: "Routing"; Accessible.name: "Manage routing rules"; onClicked: routing.open() }
     Button { text: "Backup"; onClicked: { if (root.rpc) root.rpc.call("backup.export", {}, function(result,error) { backupText.text=error ? error.message : JSON.stringify(result); backup.open() }) } }
   }
   property string pendingDeleteId: ""
