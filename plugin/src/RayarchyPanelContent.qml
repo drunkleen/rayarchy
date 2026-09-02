@@ -130,6 +130,7 @@ Item {
     if (!root.rpc || !root.connected || root.ipCheckRunning)
       return;
     root.ipCheckRunning = true;
+    root.ipProtectionDetail = "Checking external IP…";
     root.rpc.call("test.ip", {}, function (result, error) {
       root.ipCheckRunning = false;
       if (error) {
@@ -148,7 +149,7 @@ Item {
   Loader { id: qrImageLoader; sourceComponent: Component { Dialog { modal: true; title: "QR code"; standardButtons: Dialog.Close; contentItem: Image { id: qrImage; width: 320; height: 320; fillMode: Image.PreserveAspectFit } } } }
   Column {
     anchors.fill: parent; anchors.margins: 18; spacing: 12
-    Row { spacing: 12; Text { text: "Rayarchy"; color: Color.foreground; font.bold: true; font.pixelSize: 22 } Text { text: root.connected ? root.connectionDetail : "Disconnected"; color: root.connected ? "#74d99f" : Qt.darker(Color.foreground, 1.4); Accessible.name: text } Button { text: root.connected ? "Disconnect" : "Connect"; enabled: root.selectedId !== "" || root.connected; onClicked: if (root.rpc) root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : { profileId: root.selectedId }, function(result, error) { if (error) { root.message = error.message || "Connection failed" } else { root.message = root.connected ? "Disconnected" : "Connected"; root.refreshStatus() } }) } } Button { text: "Check external IP"; enabled: root.connected; Accessible.name: "Check external IP protection"; onClicked: root.checkExternalIp() }
+    Row { spacing: 12; Text { text: "Rayarchy"; color: Color.foreground; font.bold: true; font.pixelSize: 22 } Text { text: root.connected ? root.connectionDetail : "Disconnected"; color: root.connected ? "#74d99f" : Qt.darker(Color.foreground, 1.4); Accessible.name: text } Button { text: root.connected ? "Disconnect" : "Connect"; enabled: root.selectedId !== "" || root.connected; onClicked: if (root.rpc) root.rpc.call(root.connected ? "profile.disconnect" : "profile.connect", root.connected ? {} : { profileId: root.selectedId }, function(result, error) { if (error) { root.message = error.message || "Connection failed" } else { root.message = root.connected ? "Disconnected" : "Connected"; root.refreshStatus() } }) } } Button { text: root.ipCheckRunning ? "Checking IP…" : "Check external IP"; enabled: root.connected && !root.ipCheckRunning; Accessible.name: "Check external IP protection"; onClicked: root.checkExternalIp() }
     Text { text: root.ipProtectionDetail + (root.ipCheckedAt !== "" ? " • " + root.ipCheckedAt : ""); visible: root.connected && text !== ""; color: root.ipProtectionDetail === "External IP protected" ? "#74d99f" : "#efb06a" }
     TextField { id: searchField; width: parent.width; placeholderText: "Search profiles…"; onTextChanged: { root.query = text; root.refresh() } }
     Row {
