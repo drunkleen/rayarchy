@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/rayarchy-core", "crates/rayarchy-daemon", "crates/rayarchy-cli"]
+members = [
+    "crates/rayarchy-core",
+    "crates/rayarchy-daemon",
+    "crates/rayarchy-cli",
+    "crates/rayarchy-helper",
+]
 
 [workspace.package]
 version = "0.1.0"

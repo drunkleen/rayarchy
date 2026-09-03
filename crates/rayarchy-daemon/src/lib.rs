@@ -420,6 +420,7 @@ pub struct Daemon {
     child_pid: AtomicU32,
     config_path: PathBuf,
     proxy_backup: Mutex<Option<sysproxy::Backup>>,
+    tun_pidfile: Mutex<Option<PathBuf>>,
     logs: Mutex<Vec<String>>,
     bulk_cancel: AtomicBool,
     last_ip: Mutex<Option<serde_json::Value>>,
@@ -445,6 +446,7 @@ impl Daemon {
             child_pid: AtomicU32::new(0),
             config_path: std::env::temp_dir().join("rayarchy/config.json"),
             proxy_backup: Mutex::new(None),
+            tun_pidfile: Mutex::new(None),
             logs: Mutex::new(Vec::new()),
             bulk_cancel: AtomicBool::new(false),
             last_ip: Mutex::new(None),
@@ -561,16 +563,11 @@ impl Daemon {
                 db.test_history.clone(),
             )
         };
-        if matches!(
+        let tun_mode = matches!(
             settings.connection_mode,
             rayarchy_core::protocol::ConnectionMode::Tun
                 | rayarchy_core::protocol::ConnectionMode::Transparent
-        ) {
-            return Err(
-                "selected mode requires the Rayarchy privileged helper and is not enabled yet"
-                    .into(),
-            );
-        }
+        );
         let selected = if profile.protocol == rayarchy_core::protocol::Protocol::PolicyGroup {
             let mut candidates: Vec<_> = profile
                 .members
@@ -604,7 +601,9 @@ impl Daemon {
         } else {
             profile.clone()
         };
-        let core = if profile.protocol == rayarchy_core::protocol::Protocol::ProxyChain {
+        let core = if tun_mode {
+            rayarchy_core::protocol::Core::SingBox
+        } else if profile.protocol == rayarchy_core::protocol::Protocol::ProxyChain {
             rayarchy_core::protocol::Core::SingBox
         } else {
             configgen::choose_core(&selected, settings.preferred_core)
@@ -628,6 +627,9 @@ impl Daemon {
             &settings.dns,
         );
         configgen::apply_lan_bypass(&mut config, core, settings.lan_bypass);
+        if tun_mode {
+            configgen::apply_tun(&mut config, true);
+        }
         configgen::apply_stats(&mut config, core, settings.local_port);
         if let Some(parent) = self.config_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -643,13 +645,62 @@ impl Daemon {
             "xray"
         };
         validate_core_config(core, &self.config_path, &self.bin_dir).await?;
-        let child = tokio::process::Command::new(resolve_bin(&self.bin_dir, bin))
-            .args(["run", "-c"])
-            .arg(&self.config_path)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("could not start {bin}: {e}"))?;
+        let child = if tun_mode {
+            if !command_exists("pkexec") || !command_exists("rayarchy-helper") {
+                return Err(
+                    "TUN requires the rayarchy-helper binary and pkexec (run setup.sh)".into(),
+                );
+            }
+            let pidfile = std::env::temp_dir().join("rayarchy/tun.json");
+            let mut command = tokio::process::Command::new("pkexec");
+            command
+                .arg("rayarchy-helper")
+                .arg("start")
+                .arg("tun")
+                .arg("--config")
+                .arg(&self.config_path)
+                .arg("--pidfile")
+                .arg(&pidfile);
+            if settings.kill_switch {
+                command.arg("--killswitch");
+            }
+            command
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped());
+            let mut child = command
+                .spawn()
+                .map_err(|e| format!("could not start the privileged helper: {e}"))?;
+            *self.tun_pidfile.lock().await = Some(pidfile.clone());
+            // Wait for polkit authorization + the helper to bring the core up
+            // (up to 60s). If pkexec exits before the pidfile appears the
+            // user declined or the helper failed.
+            let mut started = false;
+            for _ in 0..200 {
+                if let Some(status) = child.try_wait().ok().flatten() {
+                    return Err(format!("privileged helper exited (code {status}): authorization declined or startup failed"));
+                }
+                if pidfile.exists() {
+                    started = true;
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            }
+            if !started {
+                let _ = child.kill().await;
+                return Err(
+                    "timed out waiting for the privileged helper to start (authorization?)".into(),
+                );
+            }
+            child
+        } else {
+            tokio::process::Command::new(resolve_bin(&self.bin_dir, bin))
+                .args(["run", "-c"])
+                .arg(&self.config_path)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("could not start {bin}: {e}"))?
+        };
         self.child_pid
             .store(child.id().unwrap_or(0), Ordering::Relaxed);
         *self.core_started_at.lock().await = Some(chrono::Utc::now().timestamp());
@@ -727,6 +778,16 @@ impl Daemon {
     async fn disconnect_profile(&self) -> Result<(), String> {
         *self.connected.lock().await = None;
         *self.core_started_at.lock().await = None;
+        if let Some(pidfile) = self.tun_pidfile.lock().await.take() {
+            // Best-effort teardown through the privileged helper; polkit keeps
+            // session authorization so this usually does not re-prompt.
+            let _ = tokio::process::Command::new("pkexec")
+                .args(["rayarchy-helper", "stop", "--pidfile"])
+                .arg(&pidfile)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+        }
         let pid = self.child_pid.swap(0, Ordering::Relaxed);
         if pid != 0 {
             let _ = std::process::Command::new("kill")
@@ -800,7 +861,7 @@ impl Daemon {
             }
             "system.capabilities" => {
                 let settings = self.db.lock().await.settings.clone();
-                serde_json::json!({"xray":self.core_available("xray"),"singBox":self.core_available("sing-box"),"systemProxy":true,"dnsProtection":settings.dns_leak_protection,"lanBypass":settings.lan_bypass,"tun":false,"transparent":false,"killSwitch":false})
+                serde_json::json!({"xray":self.core_available("xray"),"singBox":self.core_available("sing-box"),"systemProxy":true,"dnsProtection":settings.dns_leak_protection,"lanBypass":settings.lan_bypass,"tun":self.core_available("rayarchy-helper") && command_exists("pkexec"),"transparent":self.core_available("rayarchy-helper") && command_exists("pkexec"),"killSwitch":self.core_available("rayarchy-helper") && command_exists("iptables")})
             }
             "system.diagnostics" => {
                 let started = *self.core_started_at.lock().await;
@@ -2052,8 +2113,8 @@ impl Daemon {
                         if self.connected.lock().await.is_some() {
                             return serde_json::json!({"error":"disconnect before changing connection settings"});
                         }
-                        if s.kill_switch {
-                            return serde_json::json!({"error":"kill switch requires the privileged helper and is not enabled in this build"});
+                        if s.kill_switch && !command_exists("rayarchy-helper") {
+                            return serde_json::json!({"error":"kill switch requires the rayarchy-helper binary (run setup.sh)"});
                         }
                         {
                             let mut db = self.db.lock().await;
@@ -2840,8 +2901,47 @@ mod tests {
         let capabilities = daemon
             .dispatch("system.capabilities", serde_json::json!({}))
             .await;
-        assert_eq!(capabilities["tun"], false);
+        // TUN support is gated on the privileged helper being installed.
+        assert_eq!(
+            capabilities["tun"],
+            command_exists("rayarchy-helper") && command_exists("pkexec")
+        );
         assert!(capabilities.get("dnsProtection").is_some());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn tun_inbound_is_added_to_singbox_config() {
+        let profile = Profile {
+            server: Some("tun.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        let mut config = configgen::build(
+            &profile,
+            rayarchy_core::protocol::Core::SingBox,
+            "127.0.0.1",
+            1080,
+        );
+        configgen::apply_tun(&mut config, true);
+        let inbounds = config["inbounds"].as_array().unwrap();
+        assert!(inbounds.iter().any(|i| i["type"] == "tun"));
+        assert_eq!(inbounds.last().unwrap()["interface_name"], "ray0");
+    }
+
+    #[tokio::test]
+    async fn kill_switch_setting_requires_helper_when_missing() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let result = daemon
+            .dispatch("settings.update", serde_json::json!({"settings":{"connectionMode":"tun","preferredCore":"auto","localPort":1080,"killSwitch":true,"dnsLeakProtection":false,"lanBypass":false,"healthRetentionHours":24}}))
+            .await;
+        if command_exists("rayarchy-helper") {
+            assert_eq!(result["ok"], true);
+        } else {
+            assert!(result.get("error").is_some());
+        }
         let _ = std::fs::remove_file(path);
     }
 

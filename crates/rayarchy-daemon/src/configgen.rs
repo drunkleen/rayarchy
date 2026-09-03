@@ -297,6 +297,26 @@ pub fn apply_lan_bypass(config: &mut serde_json::Value, core: Core, enabled: boo
     }
 }
 
+/// Add a TUN inbound to a sing-box config. The interface name matches what
+/// the privileged helper expects for kill-switch rules.
+pub fn apply_tun(config: &mut serde_json::Value, enabled: bool) {
+    if !enabled {
+        return;
+    }
+    if let Some(inbounds) = config["inbounds"].as_array_mut() {
+        inbounds.push(serde_json::json!({
+            "type": "tun",
+            "tag": "rayarchy-tun",
+            "interface_name": "ray0",
+            "address": ["172.19.0.1/30", "fd00::1/126"],
+            "mtu": 1500,
+            "auto_route": true,
+            "strict_route": true,
+            "stack": "system"
+        }));
+    }
+}
+
 /// Add the traffic-observation surface used by the Clash tabs and the
 /// statistics poller. sing-box exposes the clash_api controller; xray exposes
 /// the stats + api inbounds. The state port is offset +5 from the proxy port
