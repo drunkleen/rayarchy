@@ -1,6 +1,6 @@
 # Rayarchy
 
-Current release channel: **0.1.0-beta.6**. See [docs/beta.md](docs/beta.md)
+Current release channel: **0.1.0-beta.7**. See [docs/beta.md](docs/beta.md)
 for the install flow and known beta limits.
 
 Rust v2rayN-inspired proxy management for Omarchy. It provides a systemd user
@@ -43,7 +43,7 @@ polkit-authorized helper (`rayarchy-helper`) installed by `setup.sh`.
 
 ```sh
 ./scripts/release.sh                  # release the version in manifest.json
-./scripts/release.sh --bump 0.1.0-beta.6   # bump + commit + release
+./scripts/release.sh --bump 0.1.0-beta.7   # bump + commit + release
 ./scripts/release.sh --local          # build locally + publish with gh
 ./scripts/release.sh --dry-run        # preview
 ```
