@@ -232,16 +232,47 @@ pub fn build_chain(
     }))
 }
 
-pub fn apply_dns(config: &mut serde_json::Value, core: Core, protected: bool) {
+pub fn apply_dns(
+    config: &mut serde_json::Value,
+    core: Core,
+    protected: bool,
+    dns: &serde_json::Value,
+) {
     if !protected {
         return;
     }
+    let direct = dns
+        .get("direct")
+        .and_then(|v| v.as_str())
+        .unwrap_or("223.5.5.5");
+    let remote = dns
+        .get("remote")
+        .and_then(|v| v.as_str())
+        .unwrap_or("https://1.1.1.1/dns-query");
+    let bootstrap = dns
+        .get("bootstrap")
+        .and_then(|v| v.as_str())
+        .unwrap_or("8.8.8.8");
     match core {
         Core::SingBox => {
-            config["dns"] = serde_json::json!({"servers":[{"tag":"rayarchy-dns","address":"https://1.1.1.1/dns-query","detour":"proxy"}],"final":"rayarchy-dns"})
+            config["dns"] = serde_json::json!({
+                "servers": [
+                    {"tag": "rayarchy-dns", "address": remote, "detour": "proxy"},
+                    {"tag": "rayarchy-direct-dns", "address": direct, "detour": "direct"}
+                ],
+                "final": "rayarchy-dns"
+            });
+            if let Some(rules) = config["route"]["rules"].as_array_mut() {
+                rules.push(serde_json::json!({
+                    "protocol": "dns",
+                    "outbound": "rayarchy-dns"
+                }));
+            }
         }
         Core::Xray => {
-            config["dns"] = serde_json::json!({"servers":["https://1.1.1.1/dns-query","localhost"]})
+            config["dns"] = serde_json::json!({
+                "servers": [{"address": remote, "domains": ["geosite:cn"]}, {"address": direct, "domains": ["geosite:cn"]}, bootstrap]
+            });
         }
         Core::Auto => {}
     }
@@ -483,7 +514,7 @@ mod tests {
             ..Default::default()
         };
         let mut config = build(&profile, Core::SingBox, "127.0.0.1", 1080);
-        apply_dns(&mut config, Core::SingBox, true);
+        apply_dns(&mut config, Core::SingBox, true, &serde_json::json!({}));
         assert_eq!(config["dns"]["final"], "rayarchy-dns");
     }
 

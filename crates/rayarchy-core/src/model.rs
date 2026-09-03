@@ -163,6 +163,10 @@ pub struct Settings {
     /// target (ACL4SSR compatible: `{prefix}sub?target=..&url=..`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sub_convert_url: Option<String>,
+    /// Simple DNS settings: `{direct, remote, bootstrap, fakeIp, systemHosts,
+    /// hosts}`. Consumed by config generation when DNS protection is on.
+    #[serde(default)]
+    pub dns: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,6 +197,7 @@ impl Default for Settings {
             default_profile_id: None,
             ui: Value::Object(Default::default()),
             sub_convert_url: None,
+            dns: Value::Object(Default::default()),
         }
     }
 }

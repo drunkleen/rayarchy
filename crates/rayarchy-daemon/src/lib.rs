@@ -291,6 +291,14 @@ fn profiles_equivalent(left: &Profile, right: &Profile) -> bool {
         && left.strategy == right.strategy
 }
 
+fn routing_presets() -> serde_json::Value {
+    serde_json::json!({"presets": [
+        {"id":"white","name":"White list (default)","description":"Route private/LAN traffic directly, everything else through the proxy.","rules":[{"matchType":"cidr","value":"10.0.0.0/8","action":"direct","enabled":true},{"matchType":"cidr","value":"172.16.0.0/12","action":"direct","enabled":true},{"matchType":"cidr","value":"192.168.0.0/16","action":"direct","enabled":true},{"matchType":"cidr","value":"127.0.0.0/8","action":"direct","enabled":true},{"matchType":"cidr","value":"fc00::/7","action":"direct","enabled":true}]},
+        {"id":"black","name":"Black list","description":"Block known ad/tracker hosts; everything else uses the default route.","rules":[{"matchType":"domain_keyword","value":"doubleclick","action":"block","enabled":true},{"matchType":"domain_keyword","value":"adservice","action":"block","enabled":true},{"matchType":"domain_suffix","value":"doubleclick.net","action":"block","enabled":true},{"matchType":"domain_suffix","value":"googlesyndication.com","action":"block","enabled":true}]},
+        {"id":"global","name":"Global","description":"Route all traffic through the proxy.","rules":[]}
+    ]})
+}
+
 fn validate_rule(rule: &RoutingRule) -> Result<(), String> {
     if rule.name.trim().is_empty() || rule.value.trim().is_empty() {
         return Err("routing rule name and value are required".into());
@@ -613,7 +621,12 @@ impl Daemon {
             configgen::build(&selected, core, "127.0.0.1", settings.local_port)
         };
         configgen::apply_rules(&mut config, core, &rules);
-        configgen::apply_dns(&mut config, core, settings.dns_leak_protection);
+        configgen::apply_dns(
+            &mut config,
+            core,
+            settings.dns_leak_protection,
+            &settings.dns,
+        );
         configgen::apply_lan_bypass(&mut config, core, settings.lan_bypass);
         configgen::apply_stats(&mut config, core, settings.local_port);
         if let Some(parent) = self.config_path.parent() {
@@ -814,7 +827,12 @@ impl Daemon {
                 let mut config = configgen::build(&profile, core, "127.0.0.1", settings.local_port);
                 let rules = self.db.lock().await.routing.clone();
                 configgen::apply_rules(&mut config, core, &rules);
-                configgen::apply_dns(&mut config, core, settings.dns_leak_protection);
+                configgen::apply_dns(
+                    &mut config,
+                    core,
+                    settings.dns_leak_protection,
+                    &settings.dns,
+                );
                 configgen::apply_lan_bypass(&mut config, core, settings.lan_bypass);
                 configgen::apply_stats(&mut config, core, settings.local_port);
                 let path = std::env::temp_dir()
@@ -1261,6 +1279,42 @@ impl Daemon {
                 self.db.lock().await.routing.retain(|r| Some(r.id) != id);
                 let _ = self.save().await;
                 serde_json::json!({"ok":true})
+            }
+            "routing.presets" => routing_presets(),
+            "routing.importPreset" => {
+                let preset_id = params["presetId"].as_str().unwrap_or("");
+                let preset = routing_presets()["presets"]
+                    .as_array()
+                    .and_then(|list| list.iter().find(|p| p["id"] == preset_id))
+                    .cloned()
+                    .unwrap_or_default();
+                let rules = preset["rules"].as_array().cloned().unwrap_or_default();
+                let imported = rules.len();
+                let mut db = self.db.lock().await;
+                for rule_value in rules {
+                    let name = rule_value["matchType"]
+                        .as_str()
+                        .unwrap_or("rule")
+                        .to_string();
+                    let rule = RoutingRule {
+                        id: uuid::Uuid::new_v4(),
+                        name,
+                        match_type: rule_value["matchType"]
+                            .as_str()
+                            .unwrap_or("domain")
+                            .to_string(),
+                        value: rule_value["value"].as_str().unwrap_or("").to_string(),
+                        action: rule_value["action"].as_str().unwrap_or("proxy").to_string(),
+                        enabled: rule_value["enabled"].as_bool().unwrap_or(true),
+                    };
+                    if let Err(error) = validate_rule(&rule) {
+                        return serde_json::json!({"error":error});
+                    }
+                    db.routing.push(rule);
+                }
+                drop(db);
+                let _ = self.save().await;
+                serde_json::json!({"imported":imported})
             }
             "profile.list" => {
                 let query = params["query"].as_str().unwrap_or("").trim().to_lowercase();
@@ -2002,11 +2056,13 @@ impl Daemon {
                         }
                         {
                             let mut db = self.db.lock().await;
-                            // default_profile_id and ui are owned by other RPCs
-                            // (profile.setDefault / ui.set); an option-settings
-                            // save must not silently clear them.
+                            // default_profile_id, ui and dns are owned by
+                            // other RPCs (profile.setDefault / ui.set / the
+                            // DNS sheet); an option-settings save must not
+                            // silently clear them.
                             s.default_profile_id = db.settings.default_profile_id;
                             s.ui = db.settings.ui.clone();
+                            s.dns = db.settings.dns.clone();
                             db.settings = s;
                         }
                         let _ = self.save().await;
@@ -3146,6 +3202,34 @@ mod tests {
             "https%3A%2F%2Fa.example%2Fsub%3Fx%3D1%26y%3Dtwo"
         );
         assert_eq!(urlencoding("plain"), "plain");
+    }
+
+    #[tokio::test]
+    async fn routing_presets_import_rules_and_dns_settings_round_trip() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let presets = daemon
+            .dispatch("routing.presets", serde_json::json!({}))
+            .await;
+        assert_eq!(presets["presets"].as_array().unwrap().len(), 3);
+        let imported = daemon
+            .dispatch(
+                "routing.importPreset",
+                serde_json::json!({"presetId":"white"}),
+            )
+            .await;
+        assert_eq!(imported["imported"], 5);
+        let rules = daemon.dispatch("routing.list", serde_json::json!({})).await;
+        assert_eq!(rules.as_array().unwrap().len(), 5);
+        // DNS settings survive an option-settings save.
+        let dns = serde_json::json!({"direct":"1.1.1.1","remote":"https://dns.google/dns-query","bootstrap":"8.8.8.8","systemHosts":true});
+        daemon
+            .dispatch("settings.update", serde_json::json!({"settings":{"connectionMode":"local","preferredCore":"auto","localPort":1080,"killSwitch":false,"dnsLeakProtection":true,"lanBypass":false,"healthRetentionHours":24,"dns":dns}}))
+            .await;
+        let settings = daemon.dispatch("settings.get", serde_json::json!({})).await;
+        assert_eq!(settings["dns"]["bootstrap"], "8.8.8.8");
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
