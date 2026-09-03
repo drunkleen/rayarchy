@@ -45,7 +45,9 @@ BarWidget {
         root.connected = status.connected === true
         root.connecting = status.connecting === true
         root.profileName = status.profileName || ""
-        root.tooltip = (status.localPort ? "[mixed:" + status.localPort + "] " : "") + (root.profileName || "")
+        root.tooltip = "Rayarchy v" + (status.version || "?")
+          + (status.localPort ? " · [mixed:" + status.localPort + "]" : "")
+          + (root.profileName ? " · " + root.profileName : "")
       })
     }
   }
@@ -60,9 +62,7 @@ BarWidget {
     fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
     fontSize: Style.font.body
     keepSpace: true
-    tooltipText: root.connected
-      ? root.tooltip + " — click to open"
-      : "Rayarchy — click to open"
+    tooltipText: root.tooltip + " — click to open"
     onPressed: function () {
       if (root.bar) root.bar.run("omarchy-shell shell toggle com.drunkleen.rayarchy '{}'")
       else Quickshell.execDetached("omarchy-shell shell toggle com.drunkleen.rayarchy '{}'")

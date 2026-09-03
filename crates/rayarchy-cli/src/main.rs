@@ -5,6 +5,11 @@ use tokio::net::UnixStream;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let mut args = env::args().skip(1);
+    if matches!(args.next().as_deref(), Some("--version" | "-V")) {
+        println!("rayarchy {}", version());
+        return Ok(());
+    }
     let base = env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
@@ -222,6 +227,10 @@ fn print_json(value: serde_json::Value) {
         "{}",
         serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string())
     );
+}
+
+fn version() -> &'static str {
+    option_env!("RAYARCHY_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
 }
 
 struct Client {

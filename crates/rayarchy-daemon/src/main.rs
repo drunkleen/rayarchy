@@ -2,6 +2,15 @@ use rayarchy_daemon::Daemon;
 use std::{env, path::PathBuf};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if env::args().nth(1).as_deref() == Some("--version")
+        || env::args().nth(1).as_deref() == Some("-V")
+    {
+        println!(
+            "rayarchy-daemon {}",
+            option_env!("RAYARCHY_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+        );
+        return Ok(());
+    }
     let base = env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));

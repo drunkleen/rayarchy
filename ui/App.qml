@@ -88,8 +88,11 @@ Item {
     if (!rpc.ready) return
     rpc.call("system.status", {}, function (result) {
       root.status = result || {}
+      if (result && result.version) root.appVersion = result.version
     })
   }
+
+  property string appVersion: ""
 
   function refreshAll() {
     root.refreshStatus()
@@ -228,7 +231,7 @@ Item {
 
   FloatingWindow {
     id: window
-    title: "Rayarchy"
+    title: root.appVersion !== "" ? "Rayarchy " + root.appVersion : "Rayarchy"
     color: root.background
     implicitWidth: 1280
     implicitHeight: 820

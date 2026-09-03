@@ -23,6 +23,15 @@ struct State {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--version")
+        || args.get(1).map(String::as_str) == Some("-V")
+    {
+        println!(
+            "rayarchy-helper {}",
+            option_env!("RAYARCHY_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+        );
+        return;
+    }
     let result = match args.get(1).map(String::as_str) {
         Some("start") => start(&args[2..]),
         Some("stop") => stop(&args[2..]),

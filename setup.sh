@@ -13,29 +13,29 @@ daemon_bin=""
 cli_bin=""
 helper_bin=""
 release_tmp=""
+# Install from the latest published release (SHA-256 verified); only build from
+# source when RAYARCHY_BUILD_FROM_SOURCE=1 (dev) or no release exists yet.
 if [[ "${RAYARCHY_BUILD_FROM_SOURCE:-0}" != "1" ]] && command -v curl >/dev/null && command -v tar >/dev/null && command -v sha256sum >/dev/null && command -v jq >/dev/null; then
-  version=$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' "$root/manifest.json" | head -1)
   release_tmp=$(mktemp -d)
   archive="$release_tmp/rayarchy.tar.gz"
   checksum="$release_tmp/rayarchy.tar.gz.sha256"
   release_tag=$(curl -fsSL --connect-timeout 5 --max-time 15 https://api.github.com/repos/drunkleen/rayarchy/releases/latest | jq -r '.tag_name // empty' || true)
-  [[ -n "$release_tag" ]] || release_tag="v${version}"
-  archive_url="https://github.com/drunkleen/rayarchy/releases/download/${release_tag}/rayarchy-${release_tag}-x86_64.tar.gz"
-  checksum_url="${archive_url}.sha256"
-  if [[ "$release_tag" == "v${version}" ]] && curl -fsSL --connect-timeout 5 --max-time 30 "$archive_url" -o "$archive" \
-    && curl -fsSL --connect-timeout 5 --max-time 30 "$checksum_url" -o "$checksum" \
-    && (cd "$release_tmp" && sha256sum -c "$(basename "$checksum")" >/dev/null); then
-    tar -xzf "$archive" -C "$release_tmp"
-    daemon_bin="$release_tmp/rayarchy/rayarchy-daemon"
-    cli_bin="$release_tmp/rayarchy/rayarchy"
-    helper_bin="$release_tmp/rayarchy/rayarchy-helper"
-    echo "Using Rayarchy ${release_tag} release binaries"
-  else
-    if [[ "$release_tag" != "v${version}" ]]; then
-      echo "Latest release is ${release_tag}, not v${version}; building from source"
+  if [[ -n "$release_tag" ]]; then
+    archive_url="https://github.com/drunkleen/rayarchy/releases/download/${release_tag}/rayarchy-${release_tag}-x86_64.tar.gz"
+    checksum_url="${archive_url}.sha256"
+    if curl -fsSL --connect-timeout 5 --max-time 30 "$archive_url" -o "$archive" \
+      && curl -fsSL --connect-timeout 5 --max-time 30 "$checksum_url" -o "$checksum" \
+      && (cd "$release_tmp" && sha256sum -c "$(basename "$checksum")" >/dev/null); then
+      tar -xzf "$archive" -C "$release_tmp"
+      daemon_bin="$release_tmp/rayarchy/rayarchy-daemon"
+      cli_bin="$release_tmp/rayarchy/rayarchy"
+      helper_bin="$release_tmp/rayarchy/rayarchy-helper"
+      echo "Installing Rayarchy ${release_tag} release binaries"
     else
-      echo "No release archive for v${version} yet; building from source"
+      echo "Release ${release_tag} archive unavailable or checksum failed; building from source"
     fi
+  else
+    echo "No GitHub release found; building from source"
   fi
 fi
 if [[ -z "$daemon_bin" || -z "$cli_bin" ]]; then

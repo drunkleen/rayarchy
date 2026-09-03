@@ -873,7 +873,7 @@ impl Daemon {
                         serde_json::json!({"todayUp":0,"todayDown":0,"totalUp":0,"totalDown":0})
                     }
                 };
-                let mut status = serde_json::json!({"connected": profile_id.is_some(), "connecting": connecting, "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "lastHealth": last_health, "lastIp": last_ip, "cores": {"xray": self.core_available("xray"), "singBox": self.core_available("sing-box")}});
+                let mut status = serde_json::json!({"connected": profile_id.is_some(), "connecting": connecting, "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "lastHealth": last_health, "lastIp": last_ip, "version": option_env!("RAYARCHY_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")), "cores": {"xray": self.core_available("xray"), "singBox": self.core_available("sing-box")}});
                 for (key, value) in stats.as_object().unwrap_or(&serde_json::Map::new()) {
                     status[key] = value.clone();
                 }
@@ -888,7 +888,7 @@ impl Daemon {
                 let status = serde_json::json!({"connected": self.connected.lock().await.is_some(), "socket": true, "corePid": self.child_pid.load(Ordering::Relaxed), "coreUptimeSeconds": started.map(|at| (chrono::Utc::now().timestamp() - at).max(0))});
                 let xray = command_version("xray", &self.bin_dir).await;
                 let sing_box = command_version("sing-box", &self.bin_dir).await;
-                serde_json::json!({"status":status,"cores":{"xray":xray,"singBox":sing_box},"hints": if xray.is_none() && sing_box.is_none() { vec!["install xray or sing-box"] } else { Vec::<&str>::new() }})
+                serde_json::json!({"status":status,"version":option_env!("RAYARCHY_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),"cores":{"xray":xray,"singBox":sing_box},"hints": if xray.is_none() && sing_box.is_none() { vec!["install xray or sing-box"] } else { Vec::<&str>::new() }})
             }
             "core.validate" => {
                 let id = params["profileId"]
