@@ -6,7 +6,7 @@ import "strings.js" as Strings
 // socket. Keeps one persistent connection, queues requests until the socket
 // is up, and starts the daemon (systemd --user unit, falling back to a direct
 // spawn) when it is not running yet.
-QtObject {
+Item {
   id: root
 
   property bool connected: false
