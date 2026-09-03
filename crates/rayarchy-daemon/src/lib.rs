@@ -31,6 +31,23 @@ fn resolve_bin(bin_dir: &std::path::Path, name: &str) -> PathBuf {
     }
 }
 
+/// Absolute path to a binary found on PATH (pkexec requires an absolute path).
+fn absolute_bin(name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH")
+        .and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|dir| dir.join(name))
+                .find(|candidate| candidate.is_file())
+        })
+        .or_else(|| {
+            let current = std::env::current_exe().ok()?;
+            current
+                .parent()
+                .map(|dir| dir.join(name))
+                .filter(|candidate| candidate.is_file())
+        })
+}
+
 fn valid_subscription_url(url: &str) -> bool {
     let trimmed = url.trim();
     (trimmed.starts_with("https://") || trimmed.starts_with("http://")) && trimmed.len() > 8
@@ -645,15 +662,16 @@ impl Daemon {
         };
         validate_core_config(core, &self.config_path, &self.bin_dir).await?;
         let child = if tun_mode {
-            if !command_exists("pkexec") || !command_exists("rayarchy-helper") {
-                return Err(
-                    "TUN requires the rayarchy-helper binary and pkexec (run setup.sh)".into(),
-                );
+            let Some(helper) = absolute_bin("rayarchy-helper") else {
+                return Err("TUN requires the rayarchy-helper binary (run setup.sh)".into());
+            };
+            if !command_exists("pkexec") {
+                return Err("TUN requires pkexec (install polkit)".into());
             }
             let pidfile = std::env::temp_dir().join("rayarchy/tun.json");
             let mut command = tokio::process::Command::new("pkexec");
             command
-                .arg("rayarchy-helper")
+                .arg(&helper)
                 .arg("start")
                 .arg("tun")
                 .arg("--config")
@@ -780,12 +798,15 @@ impl Daemon {
         if let Some(pidfile) = self.tun_pidfile.lock().await.take() {
             // Best-effort teardown through the privileged helper; polkit keeps
             // session authorization so this usually does not re-prompt.
-            let _ = tokio::process::Command::new("pkexec")
-                .args(["rayarchy-helper", "stop", "--pidfile"])
-                .arg(&pidfile)
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn();
+            if let Some(helper) = absolute_bin("rayarchy-helper") {
+                let _ = tokio::process::Command::new("pkexec")
+                    .arg(helper)
+                    .args(["stop", "--pidfile"])
+                    .arg(&pidfile)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn();
+            }
         }
         let pid = self.child_pid.swap(0, Ordering::Relaxed);
         if pid != 0 {
