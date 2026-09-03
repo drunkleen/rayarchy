@@ -14,6 +14,7 @@ Rectangle {
   property bool okDanger: true
   signal ok()
   signal cancelled()
+  signal closeRequested()
 
   width: Math.min(parent ? parent.width * 0.4 : 420, 460)
   height: contentColumn.height + Style.space(32)

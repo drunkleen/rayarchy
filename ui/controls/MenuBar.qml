@@ -77,10 +77,11 @@ Item {
 
   // ---- dropdown panel state -------------------------------------------------
   property Item openButton: null
-  property Item openSubmenu: null
+  property var openSubmenu: null
   property var openItems: []
   property var openCallback: null
   property int openDepth: 0
+  property int openSubmenuY: 0
 
   function itemFor(button) {
     // Find the manifest entry for the button that opened the menu.
@@ -232,13 +233,17 @@ Item {
             hoverEnabled: true
             onEntered: {
               rowDelegate.hovered = true
-              if (modelData.submenu && modelData.submenu.length) root.openSubmenuAt(modelData.submenu)
+              if (modelData.submenu && modelData.submenu.length) {
+                root.openSubmenu = modelData.submenu
+                root.openSubmenuY = Style.space(4) + index * Style.spacing.popupRowHeight
+              }
             }
             onExited: rowDelegate.hovered = false
             onClicked: {
               if (modelData.separator) return
               if (modelData.submenu && modelData.submenu.length) {
-                root.openSubmenuAt(modelData.submenu)
+                root.openSubmenu = modelData.submenu
+                root.openSubmenuY = Style.space(4) + index * Style.spacing.popupRowHeight
                 return
               }
               if (modelData.enabled === false) return
@@ -263,9 +268,7 @@ Item {
         z: 400
 
         x: panel.width - Style.space(4)
-        y: submenuY
-
-        property int submenuY: 0
+        y: root.openSubmenuY
 
         ListView {
           id: submenuList
@@ -324,7 +327,5 @@ Item {
         // no-op; position is computed from root.openButton each frame
       }
     }
-
-    function updatePosition() { panel.updatePosition() }
   }
 }

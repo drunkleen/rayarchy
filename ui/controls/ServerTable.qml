@@ -28,6 +28,8 @@ Rectangle {
   signal rowActivated(var profile)
   signal rowContextMenu(var profile, int x, int y)
   signal selectionChanged(var selectedIds)
+  signal columnWidthChanged(int index, int width)
+  signal headerClicked(var column, int index)
 
   color: "transparent"
   clip: true
@@ -125,7 +127,7 @@ Rectangle {
               onPressed: mouse.accepted = true
               onPositionChanged: {
                 if (pressed) {
-                  root.columns[index].width = Math.max(48, root.columns[index].width + mouse.x)
+                  root.columnWidthChanged(index, Math.max(48, modelData.width + mouse.x))
                   mouse.accepted = true
                 }
               }
@@ -249,7 +251,7 @@ Rectangle {
     }
   }
 
-  // ---- column helpers ---------------------------------------------------------
+// ---- column helpers ---------------------------------------------------------
   function remarksTagOffset() {
     var w = 0
     for (var i = 0; i < root.columns.length; i++) {
@@ -258,8 +260,6 @@ Rectangle {
     }
     return w
   }
-
-  signal headerClicked(var column, int index)
 
   function cellText(key, profile) {
     switch (key) {

@@ -19,28 +19,16 @@ Item {
     visible: root.stack.length > 0
   }
 
-  function open(component, title, props, width, height, closable) {
-    var sheet = component.createObject(root, {
-      title: title || "",
-      payload: props || {},
-      closable: closable !== false,
-      visible: true,
-      z: root.stack.length + 1
-    })
-    if (width) sheet.sheetWidth = width
-    if (height) sheet.sheetHeight = height
-    if (props) {
-      for (var key in props) {
-        if (props.hasOwnProperty(key) && !(key in sheet)) sheet.setProperty(key, props[key])
-      }
-    }
+  function open(component, props) {
+    var sheet = component.createObject(root, props || {})
+    if (!sheet) return null
+    sheet.visible = true
+    sheet.z = root.stack.length + 1
     root.stack.push(sheet)
-    sheet.closeRequested.connect(function () { root.close(sheet) })
+    if (sheet.closeRequested !== undefined) {
+      sheet.closeRequested.connect(function () { root.close(sheet) })
+    }
     return sheet
-  }
-
-  function openComponent(component, title, props, width, height, closable) {
-    return root.open(component, title, props, width, height, closable)
   }
 
   function close(sheet) {

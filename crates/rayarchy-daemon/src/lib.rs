@@ -1484,7 +1484,7 @@ impl Daemon {
             "settings.update" => {
                 let value = params.get("settings").cloned().unwrap_or_default();
                 match serde_json::from_value::<Settings>(value) {
-                    Ok(s) => {
+                    Ok(mut s) => {
                         if s.local_port == 0 {
                             return serde_json::json!({"error":"local port must be between 1 and 65535"});
                         }
@@ -1497,7 +1497,15 @@ impl Daemon {
                         if s.kill_switch {
                             return serde_json::json!({"error":"kill switch requires the privileged helper and is not enabled in this build"});
                         }
-                        self.db.lock().await.settings = s;
+                        {
+                            let mut db = self.db.lock().await;
+                            // default_profile_id and ui are owned by other RPCs
+                            // (profile.setDefault / ui.set); an option-settings
+                            // save must not silently clear them.
+                            s.default_profile_id = db.settings.default_profile_id;
+                            s.ui = db.settings.ui.clone();
+                            db.settings = s;
+                        }
                         let _ = self.save().await;
                         serde_json::json!({"ok":true})
                     }
@@ -2430,6 +2438,40 @@ mod tests {
             .await;
         assert_eq!(result["ok"], true);
         assert_eq!(result["reloaded"], false);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn settings_update_preserves_default_and_ui_state() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Keep".into(),
+            server: Some("keep.example".into()),
+            ..Default::default()
+        };
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        daemon
+            .dispatch(
+                "profile.setDefault",
+                serde_json::json!({"profileId":profile.id}),
+            )
+            .await;
+        daemon
+            .dispatch(
+                "ui.set",
+                serde_json::json!({"ui":{"columns":[{"key":"delay","width":90}]}}),
+            )
+            .await;
+        let result = daemon.dispatch("settings.update", serde_json::json!({"settings":{"connectionMode":"local","preferredCore":"auto","localPort":1081,"killSwitch":false,"dnsLeakProtection":false,"lanBypass":false,"healthRetentionHours":24}})).await;
+        assert_eq!(result["ok"], true);
+        let settings = daemon.dispatch("settings.get", serde_json::json!({})).await;
+        assert_eq!(settings["localPort"], 1081);
+        assert_eq!(settings["defaultProfileId"], profile.id.to_string());
+        assert_eq!(settings["ui"]["columns"][0]["key"], "delay");
         let _ = std::fs::remove_file(path);
     }
 }
