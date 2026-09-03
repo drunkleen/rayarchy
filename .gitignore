@@ -2,3 +2,6 @@
 *.db
 *.sqlite*
 *.secret
+/AGENTS.md
+/instructions.md
+/TODO.md
