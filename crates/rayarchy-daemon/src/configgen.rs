@@ -124,6 +124,13 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
             }
             if field("security") == "tls" || field("tls") == "tls" {
                 value["tls"] = serde_json::json!({"enabled":true,"server_name":if field("sni").is_empty() { server.clone() } else { field("sni").to_string() }});
+            } else if field("security") == "reality" {
+                value["tls"] = serde_json::json!({
+                    "enabled": true,
+                    "server_name": if field("sni").is_empty() { server.clone() } else { field("sni").to_string() },
+                    "utls": {"enabled": true, "fingerprint": if field("fp").is_empty() { "chrome" } else { field("fp") }},
+                    "reality": {"enabled": true, "public_key": field("pbk"), "short_id": field("sid")}
+                });
             }
             if field("type") == "ws" || field("network") == "ws" {
                 value["transport"] = serde_json::json!({"type":"ws","path":field("path"),"headers":{"Host":ws_host} });
@@ -169,8 +176,21 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                         serde_json::json!({"path":field("path"),"headers":{"Host":ws_host}});
                 }
                 value["streamSettings"] = stream;
+            } else if field("security") == "reality" {
+                let network = if field("type").is_empty() {
+                    "tcp"
+                } else {
+                    field("type")
+                };
+                let mut stream = serde_json::json!({"network":network,"security":"reality","realitySettings":{"serverName":if field("sni").is_empty() { server.clone() } else { field("sni").to_string() },"fingerprint":if field("fp").is_empty() { "chrome" } else { field("fp") },"publicKey":field("pbk"),"shortId":field("sid"),"spiderX":if field("spx").is_empty() { "/" } else { field("spx") }}});
+                if network == "ws" {
+                    stream["wsSettings"] =
+                        serde_json::json!({"path":field("path"),"headers":{"Host":ws_host}});
+                }
+                value["streamSettings"] = stream;
             }
-            if field("security") != "tls" && field("tls") != "tls" {
+            if field("security") != "tls" && field("security") != "reality" && field("tls") != "tls"
+            {
                 let network = field("type");
                 if network == "ws" {
                     value["streamSettings"] = serde_json::json!({"network":"ws","wsSettings":{"path":field("path"),"headers":{"Host":ws_host}}});
@@ -586,5 +606,39 @@ mod tests {
             .unwrap()
             .iter()
             .any(|value| value == "192.168.0.0/16"));
+    }
+
+    #[test]
+    fn reality_security_generates_reality_settings_for_both_cores() {
+        let profile = Profile {
+            server: Some("reality.example".into()),
+            port: Some(443),
+            fields: serde_json::json!({
+                "user": "00000000-0000-0000-0000-000000000005",
+                "security": "reality",
+                "sni": "www.example.com",
+                "pbk": "abc123publickey",
+                "sid": "abcd",
+                "spx": "/",
+                "flow": "xtls-rprx-vision",
+                "type": "tcp"
+            }),
+            ..Default::default()
+        };
+        let sing = build(&profile, Core::SingBox, "127.0.0.1", 1080);
+        assert_eq!(
+            sing["outbounds"][0]["tls"]["reality"]["public_key"],
+            "abc123publickey"
+        );
+        assert_eq!(sing["outbounds"][0]["tls"]["reality"]["enabled"], true);
+        let xray = build(&profile, Core::Xray, "127.0.0.1", 1080);
+        assert_eq!(
+            xray["outbounds"][0]["streamSettings"]["security"],
+            "reality"
+        );
+        assert_eq!(
+            xray["outbounds"][0]["streamSettings"]["realitySettings"]["publicKey"],
+            "abc123publickey"
+        );
     }
 }
