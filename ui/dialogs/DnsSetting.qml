@@ -5,8 +5,8 @@ import qs.Commons
 import "../strings.js" as Strings
 import "../controls"
 
-// v2rayN DNS Setting (Phase 1: simple DNS flags; custom templates arrive in
-// Phase 2). Writes through settings.update.
+// v2rayN DNS Setting: simple DNS servers plus protection toggles. Written
+// through settings.update (the daemon preserves unrelated settings).
 Sheet {
   id: dialog
 
@@ -17,12 +17,21 @@ Sheet {
 
   title: Strings.tr("dnsSetting")
   width: Math.min(parent ? parent.width * 0.56 : 640, 660)
-  height: Math.min(parent ? parent.height * 0.6 : 520, 560)
+  height: Math.min(parent ? parent.height * 0.66 : 560, 600)
 
   Component.onCompleted: {
     if (!dialog.rpc) return
-    dialog.rpc.call("settings.get", {}, function (s) { dialog.settings = s || {} })
+    dialog.rpc.call("settings.get", {}, function (s) {
+      dialog.settings = s || {}
+      dialog.directDns = (s && s.dns && s.dns.direct) || "223.5.5.5"
+      dialog.remoteDns = (s && s.dns && s.dns.remote) || "https://1.1.1.1/dns-query"
+      dialog.bootstrapDns = (s && s.dns && s.dns.bootstrap) || "8.8.8.8"
+    })
   }
+
+  property string directDns: "223.5.5.5"
+  property string remoteDns: "https://1.1.1.1/dns-query"
+  property string bootstrapDns: "8.8.8.8"
 
   content: Component {
     ColumnLayout {
@@ -44,18 +53,27 @@ Sheet {
 
         Text { text: Strings.tr("settingDnsLeak"); color: Color.foreground; font.pixelSize: Style.font.bodySmall }
         CheckBox { id: dnsField; checked: dialog.settings.dnsLeakProtection !== false }
-        Text { text: Strings.tr("dnsSystemHosts"); color: Color.foreground; font.pixelSize: Style.font.bodySmall }
-        CheckBox { id: hostsField; checked: false }
+
+        Text { text: Strings.tr("dnsDirect"); color: Color.foreground; font.pixelSize: Style.font.bodySmall }
+        TextField {
+          Layout.fillWidth: true
+          text: dialog.directDns
+          onTextEdited: dialog.directDns = text
+        }
+        Text { text: Strings.tr("dnsRemote"); color: Color.foreground; font.pixelSize: Style.font.bodySmall }
+        TextField {
+          Layout.fillWidth: true
+          text: dialog.remoteDns
+          onTextEdited: dialog.remoteDns = text
+        }
+        Text { text: Strings.tr("dnsBootstrap"); color: Color.foreground; font.pixelSize: Style.font.bodySmall }
+        TextField {
+          Layout.fillWidth: true
+          text: dialog.bootstrapDns
+          onTextEdited: dialog.bootstrapDns = text
+        }
         Text { text: Strings.tr("dnsFakeIp"); color: Color.foreground; font.pixelSize: Style.font.bodySmall }
         CheckBox { id: fakeIpField; checked: false; enabled: false }
-      }
-
-      Text {
-        Layout.fillWidth: true
-        text: Strings.tr("tunNotAvailable")
-        color: Color.muted
-        font.pixelSize: Style.font.caption
-        wrapMode: Text.Wrap
       }
 
       Item { Layout.fillHeight: true }
@@ -83,7 +101,13 @@ Sheet {
       killSwitch: false,
       dnsLeakProtection: dnsField.checked,
       lanBypass: dialog.settings.lanBypass !== false,
-      healthRetentionHours: dialog.settings.healthRetentionHours || 24
+      healthRetentionHours: dialog.settings.healthRetentionHours || 24,
+      dns: {
+        direct: dialog.directDns.trim() || "223.5.5.5",
+        remote: dialog.remoteDns.trim() || "https://1.1.1.1/dns-query",
+        bootstrap: dialog.bootstrapDns.trim() || "8.8.8.8",
+        systemHosts: true
+      }
     }
     dialog.saving = true
     dialog.rpc.call("settings.update", { settings: s }, function (result) {

@@ -153,11 +153,21 @@ Sheet {
           anchors.fill: parent
           anchors.margins: Style.space(8)
           spacing: Style.space(8)
-          Text {
-            text: Strings.tr("settingUi")
-            color: Color.muted
-            font.pixelSize: Style.font.bodySmall
-            width: parent.width
+          Row {
+            spacing: Style.space(8)
+            CheckBox {
+              id: statsField
+              checked: dialog.app ? dialog.app.showStatsColumns : false
+              onCheckedChanged: {
+                if (dialog.app && dialog.app.showStatsColumns !== checked) dialog.app.toggleStatsColumns()
+              }
+            }
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: Strings.tr("colTotalDown") + " — " + Strings.tr("settingUi")
+              color: Color.foreground
+              font.pixelSize: Style.font.bodySmall
+            }
           }
         }
       }

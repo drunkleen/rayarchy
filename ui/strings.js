@@ -44,6 +44,7 @@ const strings = {
   fullConfigTemplate: "Full config template",
   backupRestore: "Backup and restore",
   clearServerStats: "Clear server statistics",
+  clearServerStats: "Clear server statistics",
   openFileLocation: "Open the file location",
   checkUpdate: "Check for updates",
   regionalDefault: "Regional preset: default",

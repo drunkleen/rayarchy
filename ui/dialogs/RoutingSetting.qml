@@ -40,6 +40,23 @@ Sheet {
       dialog.rpc.call("routing.delete", { ruleId: id }, function () { dialog.refresh() })
     })
   }
+
+  function importPreset() {
+    dialog.rpc.call("routing.presets", {}, function (result) {
+      if (!result || !result.presets) return
+      dialog.app.contextMenu(result.presets.map(function (p) {
+        return { label: p.name, action: p.id, description: p.description || "" }
+      }), 90, 40, function (item) {
+        dialog.app.confirm("Import " + item.label + "?", function () {
+          dialog.rpc.call("routing.importPreset", { presetId: item.action }, function (res) {
+            if (res.error) dialog.app.notify(res.error)
+            else dialog.app.notify(item.label + " ✓")
+            dialog.refresh()
+          })
+        })
+      })
+    })
+  }
   function saveRule(rule) {
     // Editing is delete+recreate (the backend has no routing.update yet).
     var done = function () {
@@ -64,6 +81,7 @@ Sheet {
           Layout.fillWidth: true
           spacing: Style.space(8)
           Button { text: Strings.tr("routingAddRule"); flat: true; onClicked: dialog.addRule() }
+          Button { text: Strings.tr("importFromClipboard"); flat: true; onClicked: dialog.importPreset() }
           Item { Layout.fillWidth: true }
           Button { text: Strings.tr("close"); flat: true; onClicked: dialog.closeRequested() }
         }

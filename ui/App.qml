@@ -99,9 +99,10 @@ Item {
 
   // ---- UI state persistence -----------------------------------------------------
   property var uiState: ({ columns: [], windowWidth: 1280, windowHeight: 820 })
+  property bool showStatsColumns: false
 
   function defaultColumns() {
-    return [
+    var cols = [
       { key: "configType", label: Strings.tr("colConfigType"), width: 90 },
       { key: "remarks", label: Strings.tr("colRemarks"), width: 220 },
       { key: "address", label: Strings.tr("colAddress"), width: 150 },
@@ -113,10 +114,26 @@ Item {
       { key: "speed", label: Strings.tr("colSpeed"), width: 100 },
       { key: "ipInfo", label: Strings.tr("colIp"), width: 140 }
     ]
+    if (root.showStatsColumns) {
+      cols = cols.concat([
+        { key: "todayUp", label: Strings.tr("colTodayUp"), width: 80 },
+        { key: "todayDown", label: Strings.tr("colTodayDown"), width: 80 },
+        { key: "totalUp", label: Strings.tr("colTotalUp"), width: 80 },
+        { key: "totalDown", label: Strings.tr("colTotalDown"), width: 80 }
+      ])
+    }
+    return cols
+  }
+
+  function toggleStatsColumns() {
+    root.showStatsColumns = !root.showStatsColumns
+    root.uiState.columns = root.defaultColumns()
+    root.scheduleUiSave()
   }
 
   function loadUiState() {
     rpc.call("ui.get", {}, function (state) {
+      root.showStatsColumns = state && state.showStatsColumns === true
       var cols = state && state.columns && state.columns.length ? state.columns : root.defaultColumns()
       root.uiState.columns = cols
       if (state && state.windowWidth) window.width = state.windowWidth
@@ -132,7 +149,8 @@ Item {
       rpc.call("ui.set", { ui: {
         columns: root.uiState.columns,
         windowWidth: window.width,
-        windowHeight: window.height
+        windowHeight: window.height,
+        showStatsColumns: root.showStatsColumns
       } }, function () {})
     }
   }
@@ -212,9 +230,9 @@ Item {
             color: Util.alpha(Color.muted, 0.3)
           }
 
-          // Right-hand tab area (Msg now; Proxies/Connections arrive with Phase 2)
+          // Right-hand tab area (Msg + Clash Proxies/Connections while sing-box runs)
           Rectangle {
-            Layout.preferredWidth: 380
+            Layout.preferredWidth: 400
             Layout.fillHeight: true
             color: Util.alpha(Color.background, 0.5)
 
@@ -223,7 +241,13 @@ Item {
               anchors.top: parent.top
               anchors.left: parent.left
               anchors.right: parent.right
-              TabButton { text: Strings.tr("tabMsg") }
+              Repeater {
+                model: root.tabModel
+                delegate: TabButton {
+                  required property var modelData
+                  text: modelData.label
+                }
+              }
             }
 
             StackLayout {
@@ -235,6 +259,16 @@ Item {
 
               MsgView {
                 id: msgView
+                app: root
+                rpc: root.rpc
+              }
+              ClashProxies {
+                id: clashProxies
+                app: root
+                rpc: root.rpc
+              }
+              ClashConnections {
+                id: clashConnections
                 app: root
                 rpc: root.rpc
               }
@@ -347,6 +381,8 @@ Item {
         { label: Strings.tr("routingSetting"), action: "routingSetting" },
         { label: Strings.tr("dnsSetting"), action: "dnsSetting" },
         { separator: true },
+        { label: Strings.tr("clearServerStats"), action: "clearStats" },
+        { separator: true },
         { label: Strings.tr("backupRestore"), action: "backupRestore" },
         { label: Strings.tr("openFileLocation"), action: "openFileLocation" }
       ]
@@ -354,7 +390,7 @@ Item {
     {
       label: Strings.tr("menuHelp"),
       submenu: [
-        { label: Strings.tr("checkUpdate"), action: "checkUpdate", enabled: false }
+        { label: Strings.tr("checkUpdate"), action: "checkUpdate" }
       ]
     },
     { label: Strings.tr("menuReload"), action: "reload" },
@@ -375,11 +411,33 @@ Item {
     else if (action === "optionSetting") root.openOptionSetting()
     else if (action === "routingSetting") root.openRoutingSetting()
     else if (action === "dnsSetting") root.openDnsSetting()
+    else if (action === "clearStats") root.clearStatistics()
     else if (action === "backupRestore") root.openBackupRestore()
     else if (action === "openFileLocation") root.openFileLocation()
+    else if (action === "checkUpdate") root.openCheckUpdate()
     else if (action === "reload") root.reload()
     else if (action === "close") root.requestClose()
   }
+
+  function openCheckUpdate() {
+    sheetHost.open(Qt.createComponent("dialogs/CheckUpdate.qml"), {
+      rpc: rpc, app: root, title: Strings.tr("checkUpdateTitle")
+    })
+  }
+
+  function clearStatistics() {
+    root.confirm(Strings.tr("clearServerStats") + "?", function () {
+      rpc.call("statistics.clear", {}, function () { root.refreshStatus(); root.profilesView.refresh() })
+    })
+  }
+
+  // Right-hand tabs: Msg always; Clash Proxies/Connections while sing-box runs.
+  readonly property var tabModel: [
+    { key: "msg", label: Strings.tr("tabMsg") },
+    { key: "proxies", label: Strings.tr("tabProxies"), visible: root.showClashUI },
+    { key: "connections", label: Strings.tr("tabConnections"), visible: root.showClashUI }
+  ].filter(function (t) { return t.visible !== false })
+  readonly property bool showClashUI: root.status.core === "sing-box"
 
   // ---- status/action helpers ---------------------------------------------------------
   function notify(message) {
@@ -484,13 +542,37 @@ Item {
     })
   }
 
+  function udpTestProfile(profile) {
+    root.notify(Strings.tr("udpTest") + "…")
+    rpc.call("test.udp", { profileId: profile.id }, function (result) {
+      if (result.error) root.notify(Strings.tr("udpTest") + ": " + result.error)
+      else if (result.ok) root.notify(profile.name + ": UDP " + result.latencyMs + " ms")
+      else root.notify(profile.name + ": UDP failed")
+      root.profilesView.refresh()
+    })
+  }
+
   function shareServer(profile, format) {
     var payload = profile.raw || ""
     if (format === "base64") {
       payload = Qt.btoa(unescape(encodeURIComponent(payload)))
     } else if (format === "inner") {
-      // Inner URI arrives with Phase 2; fall back to the share URL for now.
-      payload = profile.raw || ""
+      rpc.call("profile.inner", { profileId: profile.id }, function (result) {
+        if (!result || result.error) { root.notify("Inner URI unavailable"); return }
+        root.sharePayload(profile, result.innerUri || "", true)
+      })
+      return
+    }
+    root.sharePayload(profile, payload, false)
+  }
+
+  function sharePayload(profile, payload, skipQr) {
+    if (skipQr) {
+      sheetHost.open(Qt.createComponent("dialogs/QrShare.qml"), {
+        rpc: rpc, app: root, payload: payload, imagePath: "", error: "",
+        title: Strings.tr("qrShareTitle")
+      })
+      return
     }
     rpc.call("profile.qr.image", { profileId: profile.id }, function (result) {
       sheetHost.open(Qt.createComponent("dialogs/QrShare.qml"), {

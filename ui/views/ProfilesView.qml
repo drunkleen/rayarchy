@@ -329,6 +329,7 @@ Item {
       { separator: true },
       { label: Strings.tr("tcping"), action: "tcping" },
       { label: Strings.tr("realPing"), action: "realping" },
+      { label: Strings.tr("udpTest"), action: "udp", enabled: ids.length === 1 },
       { label: Strings.tr("speedTest"), action: "speed", enabled: ids.length === 1 },
       { label: Strings.tr("sortByDelay"), action: "sortByDelay", enabled: ids.length === 1 },
       { separator: true },
@@ -369,6 +370,7 @@ Item {
       case "removeInvalid": root.app.removeInvalid(profile); break
       case "tcping": root.runBulk(ids, "test.bulk"); break
       case "realping": root.runBulk(ids, "test.bulk.proxy"); break
+      case "udp": root.app.udpTestProfile(profile); break
       case "speed": root.app.speedTestProfile(profile); break
       case "sortByDelay": root.sortByColumn({ key: "delay" }); break
       case "top": case "up": case "down": case "bottom":

@@ -31,6 +31,41 @@ Rectangle {
     root.available = root.status.connected === true
   }
 
+  property real lastUp: 0
+  property real lastDown: 0
+  property real lastSampleMs: 0
+  property string speedText: ""
+
+  function refreshSpeed() {
+    if (!root.rpc || !root.rpc.ready || !root.status.connected) {
+      root.speedText = "↑ -- ↓ --"
+      return
+    }
+    root.rpc.call("stats.current", {}, function (result) {
+      if (!result || result.error) return
+      var up = result.up || 0
+      var down = result.down || 0
+      var now = Date.now()
+      if (root.lastSampleMs > 0 && now > root.lastSampleMs) {
+        var seconds = (now - root.lastSampleMs) / 1000
+        var upRate = Math.max(0, up - root.lastUp) / seconds
+        var downRate = Math.max(0, down - root.lastDown) / seconds
+        root.speedText = "↑ " + Common.formatBytes(upRate) + "/s ↓ " + Common.formatBytes(downRate) + "/s"
+      }
+      root.lastUp = up
+      root.lastDown = down
+      root.lastSampleMs = now
+    })
+  }
+
+  Timer {
+    id: speedTimer
+    interval: 2000
+    repeat: true
+    running: true
+    onTriggered: root.refreshSpeed()
+  }
+
   RowLayout {
     anchors.fill: parent
     anchors.leftMargin: Style.space(10)
@@ -146,9 +181,9 @@ Rectangle {
       }
     }
 
-    // Realtime speed (Phase 2 wiring; shows static now)
+    // Realtime speed (proxy/direct deltas from stats.current)
     Text {
-      text: "↑ -- ↓ --"
+      text: root.speedText
       color: Color.muted
       font.family: "monospace"
       font.pixelSize: Style.font.caption
