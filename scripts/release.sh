@@ -11,10 +11,11 @@ root=$(cd "$(dirname "$0")/.." && pwd -P)
 cd "$root"
 
 mode="ci"
+bump=0
 version=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --bump) mode="bump"; shift; [[ $# -gt 0 ]] && version="$1"; shift ;;
+    --bump) bump=1; shift; [[ $# -gt 0 ]] && version="$1"; shift ;;
     --dry-run) mode="dry-run"; shift ;;
     --local) mode="local"; shift ;;
     -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
@@ -31,15 +32,15 @@ tag="v${version}"
 if [[ "$mode" == "dry-run" ]]; then
   echo "Rayarchy release dry run (version=$version, tag=$tag):"
   echo "  git push origin HEAD"
-  [[ -z "$version" ]] && echo "  (bump manifest/README/beta.md)"
+  [[ "$bump" == "1" ]] && echo "  (bump manifest/README/beta.md)"
   echo "  git tag $tag"
   echo "  git push origin $tag"
   echo "  # CI builds + attaches the archive; verify: gh release view $tag"
   exit 0
 fi
 
-# Optional version bump: edit manifest.json + README + docs/beta.md and commit.
-if [[ "$mode" == "bump" ]]; then
+# Optional version bump: edit manifest + README + docs/beta.md and commit.
+if [[ "$bump" == "1" ]]; then
   [[ "$version" == "$manifest_version" ]] || {
     command -v python3 >/dev/null || { echo "--bump needs python3" >&2; exit 1; }
     python3 - "$version" <<'PY'
