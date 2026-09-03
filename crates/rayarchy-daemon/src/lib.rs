@@ -3079,6 +3079,12 @@ mod tests {
         let path =
             std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
         let daemon = Daemon::new(path.clone()).unwrap();
+        // When the privileged helper is installed this test would spawn pkexec
+        // (a Polkit prompt); guard it so the test suite stays headless.
+        if absolute_bin("rayarchy-helper").is_some() && command_exists("pkexec") {
+            let _ = std::fs::remove_file(path);
+            return;
+        }
         let profile = Profile {
             name: "Tun test".into(),
             server: Some("tun.example".into()),
