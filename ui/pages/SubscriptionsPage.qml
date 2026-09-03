@@ -144,6 +144,15 @@ Item {
       border.width: 1
     }
 
+    // Below the controls so the Switch and buttons receive their own clicks;
+    // only empty row space falls through to the row-click/edit action.
+    MouseArea {
+      id: mouse
+      anchors.fill: parent
+      hoverEnabled: true
+      onClicked: row.editRequested()
+    }
+
     RowLayout {
       anchors.fill: parent
       anchors.leftMargin: Style.space(10)
@@ -217,14 +226,6 @@ Item {
         ToolTip.visible: hovered
         onClicked: row.deleteRequested()
       }
-    }
-
-    MouseArea {
-      id: mouse
-      anchors.fill: parent
-      hoverEnabled: true
-      acceptedButtons: Qt.LeftButton
-      onClicked: row.editRequested()
     }
   }
 }

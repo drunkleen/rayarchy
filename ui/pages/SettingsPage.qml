@@ -308,14 +308,29 @@ Item {
       healthRetentionHours: isNaN(retention) ? 24 : retention,
       subConvertUrl: root.subConvert.trim() || null
     }
+    var connectedId = root.app.status.profileId || null
+    if (connectedId) {
+      root.app.confirm("Settings apply only while disconnected. Disconnect, save and reconnect?", function () {
+        root.rpc.call("profile.disconnect", {}, function () {
+          root.commit(s, connectedId)
+        })
+      })
+      return
+    }
+    root.commit(s, null)
+  }
+
+  function commit(s, reconnectId) {
     root.saving = true
     root.rpc.call("settings.update", { settings: s }, function (result) {
       root.saving = false
       if (result.error) { root.app.notify(result.error); return }
       root.app.notify(Strings.tr("save") + " ✓")
       root.app.refreshAll()
-      if (root.app.status.connected) {
-        root.app.confirm(Strings.tr("reload") + "?", function () { root.app.reload() })
+      if (reconnectId) {
+        root.rpc.call("profile.connect", { profileId: reconnectId }, function (res) {
+          if (res.error) root.app.notify(Strings.tr("connectFailed") + ": " + res.error)
+        })
       }
     })
   }

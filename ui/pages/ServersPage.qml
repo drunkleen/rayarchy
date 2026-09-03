@@ -526,6 +526,7 @@ Item {
     var isGroup = profile.protocol === "policy-group" || profile.protocol === "proxy-chain"
 
     var items = [
+      { label: profile.connected ? Strings.tr("disconnect") : Strings.tr("connect"), action: "connect", checked: profile.connected },
       { label: Strings.tr("setDefaultServer"), action: "default", checked: !!profile.default },
       { label: Strings.tr("editServer"), action: "edit" },
       { label: Strings.tr("copyServer"), action: "copy" },
@@ -567,6 +568,7 @@ Item {
 
   function handleRowAction(item, profile, ids) {
     switch (item.action) {
+      case "connect": root.app.activateProfile(profile); break
       case "default": root.app.setDefault(profile.id); break
       case "edit": root.app.editServer(profile); break
       case "copy": root.app.copyServer(profile); break
@@ -599,7 +601,12 @@ Item {
 
   Keys.onPressed: function (event) {
     var ctrl = event.modifiers & Qt.ControlModifier
-    if (event.key === Qt.Key_Escape) { root.app.contextMenuHide(); event.accepted = true; return }
+    if (event.key === Qt.Key_Escape) {
+      if (root.app.contextMenuVisible()) root.app.contextMenuHide()
+      else root.app.requestClose()
+      event.accepted = true
+      return
+    }
     if (root.selectedIds.length === 1) {
       var p = root.singleProfile()
       if (ctrl && event.key === Qt.Key_C) { if (p) root.app.shareServer(p, "raw"); event.accepted = true; return }

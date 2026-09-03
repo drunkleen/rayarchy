@@ -87,6 +87,18 @@ async fn rpc_server_roundtrips_core_workflows() {
     )
     .await;
     assert_eq!(reload["result"]["reloaded"], false);
+    let logs = call(
+        &mut stream,
+        serde_json::json!({"jsonrpc":"2.0","id":14,"method":"system.logs","params":{}}),
+    )
+    .await;
+    assert!(logs["result"]["lines"].is_array());
+    let clear = call(
+        &mut stream,
+        serde_json::json!({"jsonrpc":"2.0","id":15,"method":"system.logs.clear","params":{}}),
+    )
+    .await;
+    assert_eq!(clear["result"]["ok"], true);
     task.abort();
     let _ = tokio::fs::remove_dir_all(root).await;
 }

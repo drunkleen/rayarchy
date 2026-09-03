@@ -159,6 +159,8 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                 serde_json::json!({"vnext":[{"address":server,"port":server_port,"users":[{"id":user,"alterId":profile.fields.get("aid").and_then(|v| v.as_u64()).unwrap_or(0),"encryption":if field("encryption").is_empty() { "none" } else { field("encryption") },"flow":field("flow")}]}]})
             } else if profile.protocol == Protocol::Trojan {
                 serde_json::json!({"servers":[{"address":server,"port":server_port,"password":if password.is_empty() { user } else { password }}]})
+            } else if matches!(profile.protocol, Protocol::Socks | Protocol::Http) {
+                serde_json::json!({"servers":[{"address":server,"port":server_port,"users":[{"user":user,"pass":password}]}]})
             } else {
                 serde_json::json!({"servers":[{"address":server,"port":server_port,"method":method,"password":password}]})
             };
@@ -290,8 +292,15 @@ pub fn apply_dns(
             }
         }
         Core::Xray => {
+            // Remote (DoH via proxy) is the default resolver; the direct
+            // server handles mainland-resolvable (Chinese) domains. The
+            // bootstrap resolver only bootstraps the DoH server address.
             config["dns"] = serde_json::json!({
-                "servers": [{"address": remote, "domains": ["geosite:cn"]}, {"address": direct, "domains": ["geosite:cn"]}, bootstrap]
+                "servers": [
+                    {"address": remote},
+                    {"address": direct, "domains": ["geosite:cn"]},
+                    bootstrap
+                ]
             });
         }
         Core::Auto => {}
@@ -433,7 +442,14 @@ pub fn apply_rules(config: &mut serde_json::Value, core: Core, rules: &[RoutingR
                     "block" => "block",
                     _ => "proxy",
                 };
-                list.push(serde_json::json!({"type":"field","domain":[rule.value],"outboundTag":outbound}));
+                let field = match rule.match_type.as_str() {
+                    "domain_keyword" => "domainKeyword",
+                    "ip" | "cidr" => "ip",
+                    _ => "domain",
+                };
+                let mut r = serde_json::json!({"type":"field", "outboundTag": outbound});
+                r[field] = serde_json::json!([rule.value]);
+                list.push(r);
             }
         }
         Core::Auto => {}
@@ -640,5 +656,81 @@ mod tests {
             xray["outbounds"][0]["streamSettings"]["realitySettings"]["publicKey"],
             "abc123publickey"
         );
+    }
+
+    #[test]
+    fn xray_routing_places_cidr_in_ip_field_and_keyword_in_domain_keyword() {
+        use rayarchy_core::model::RoutingRule;
+        let profile = Profile {
+            server: Some("r.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        let rules = [
+            RoutingRule {
+                id: uuid::Uuid::new_v4(),
+                name: "lan".into(),
+                match_type: "cidr".into(),
+                value: "192.0.2.0/24".into(),
+                action: "direct".into(),
+                enabled: true,
+            },
+            RoutingRule {
+                id: uuid::Uuid::new_v4(),
+                name: "kw".into(),
+                match_type: "domain_keyword".into(),
+                value: "ads".into(),
+                action: "block".into(),
+                enabled: true,
+            },
+        ];
+        let mut config = build(&profile, Core::Xray, "127.0.0.1", 1080);
+        apply_rules(&mut config, Core::Xray, &rules);
+        let rules = config["routing"]["rules"].as_array().unwrap();
+        assert!(rules
+            .iter()
+            .any(|r| r["ip"] == serde_json::json!(["192.0.2.0/24"])));
+        assert!(rules
+            .iter()
+            .any(|r| r["domainKeyword"] == serde_json::json!(["ads"])));
+        // a CIDR must never land in the domain field for Xray
+        assert!(rules.iter().all(|r| r.get("domain").is_none()));
+    }
+
+    #[test]
+    fn xray_socks_and_http_outbounds_emit_user_credentials() {
+        for protocol in [Protocol::Socks, Protocol::Http] {
+            let mut profile = Profile {
+                protocol,
+                server: Some("s.example".into()),
+                port: Some(1080),
+                ..Default::default()
+            };
+            profile.fields = serde_json::json!({"user":"alice","password":"secret","method":""});
+            let config = build(&profile, Core::Xray, "127.0.0.1", 1080);
+            let servers = &config["outbounds"][0]["settings"]["servers"][0];
+            assert_eq!(servers["users"][0]["user"], "alice");
+            assert_eq!(servers["users"][0]["pass"], "secret");
+        }
+    }
+
+    #[test]
+    fn xray_dns_scopes_cn_to_direct_and_remote_as_default() {
+        let profile = Profile {
+            server: Some("dns.example".into()),
+            port: Some(443),
+            ..Default::default()
+        };
+        let mut config = build(&profile, Core::Xray, "127.0.0.1", 1080);
+        apply_dns(&mut config, Core::Xray, true, &serde_json::json!({}));
+        let servers = config["dns"]["servers"].as_array().unwrap();
+        let remote = &servers[0];
+        let direct = servers.iter().find(|s| s.get("domains").is_some()).unwrap();
+        assert!(direct["domains"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("geosite:cn")));
+        // the default resolver must not also claim geosite:cn
+        assert!(remote.get("domains").is_none());
     }
 }

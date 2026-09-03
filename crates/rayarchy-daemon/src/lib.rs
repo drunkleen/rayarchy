@@ -104,8 +104,8 @@ fn as_counter(value: &serde_json::Value) -> u64 {
 }
 
 /// Extract an archive (zip or tar.gz) in memory using system tools and return
-/// the file paths of the entries. Used by the core installer.
-fn extract_archive(asset: &str, bytes: &[u8]) -> Option<Vec<Vec<u8>>> {
+/// the file name -> bytes of the entries. Used by the core installer.
+fn extract_archive(asset: &str, bytes: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
     let tmp = std::env::temp_dir().join(format!("rayarchy-extract-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&tmp).ok()?;
     let archive_path = tmp.join("archive.bin");
@@ -138,14 +138,18 @@ fn extract_archive(asset: &str, bytes: &[u8]) -> Option<Vec<Vec<u8>>> {
     success.then_some(files)
 }
 
-fn collect_files(dir: &std::path::Path, out: &mut Vec<Vec<u8>>) {
+fn collect_files(dir: &std::path::Path, out: &mut Vec<(String, Vec<u8>)>) {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 collect_files(&path, out);
             } else if let Ok(bytes) = std::fs::read(&path) {
-                out.push(bytes);
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                out.push((name, bytes));
             }
         }
     }
@@ -785,6 +789,22 @@ impl Daemon {
             *daemon.core_started_at.lock().await = None;
             let crashed_profile = daemon.connected.lock().await.take();
             let _ = std::fs::remove_file(&daemon.config_path);
+            // A crashed core leaves the OS pointed at a dead proxy (or a signed
+            // kill-switch) unless we restore it, mirroring disconnect_profile.
+            if let Some(backup) = daemon.proxy_backup.lock().await.take() {
+                let _ = sysproxy::restore(&backup);
+            }
+            if let Some(pidfile) = daemon.tun_pidfile.lock().await.take() {
+                if let Some(helper) = absolute_bin("rayarchy-helper") {
+                    let _ = tokio::process::Command::new("pkexec")
+                        .arg(helper)
+                        .args(["stop", "--pidfile"])
+                        .arg(&pidfile)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .spawn();
+                }
+            }
             // Reconnect supervision is deliberately kept outside this child
             // monitor; a crashed core is never reported as connected again.
             let _ = crashed_profile;
@@ -881,7 +901,8 @@ impl Daemon {
             }
             "system.capabilities" => {
                 let settings = self.db.lock().await.settings.clone();
-                serde_json::json!({"xray":self.core_available("xray"),"singBox":self.core_available("sing-box"),"systemProxy":true,"dnsProtection":settings.dns_leak_protection,"lanBypass":settings.lan_bypass,"tun":self.core_available("rayarchy-helper") && command_exists("pkexec"),"transparent":self.core_available("rayarchy-helper") && command_exists("pkexec"),"killSwitch":self.core_available("rayarchy-helper") && command_exists("iptables")})
+                let helper = absolute_bin("rayarchy-helper").is_some();
+                serde_json::json!({"xray":self.core_available("xray"),"singBox":self.core_available("sing-box"),"systemProxy":true,"dnsProtection":settings.dns_leak_protection,"lanBypass":settings.lan_bypass,"tun":helper && command_exists("pkexec"),"transparent":helper && command_exists("pkexec"),"killSwitch":helper && command_exists("iptables")})
             }
             "system.diagnostics" => {
                 let started = *self.core_started_at.lock().await;
@@ -934,6 +955,10 @@ impl Daemon {
                 let limit = params["limit"].as_u64().unwrap_or(200).min(500) as usize;
                 let logs = self.logs.lock().await;
                 serde_json::json!({"lines":logs.iter().rev().take(limit).cloned().collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>()})
+            }
+            "system.logs.clear" => {
+                self.logs.lock().await.clear();
+                serde_json::json!({"ok":true})
             }
             "backup.export" => {
                 let db = self.db.lock().await;
@@ -1212,7 +1237,7 @@ impl Daemon {
                     .args(["-fsS", "-X", "PATCH", "--noproxy", "*", "--max-time", "3"])
                     .arg(format!("http://127.0.0.1:{port}/configs"))
                     .arg("-d")
-                    .arg(format!(r#"{{"mode":"{mode}"}}"#))
+                    .arg(serde_json::json!({"mode": mode}).to_string())
                     .output()
                     .await;
                 serde_json::json!({"ok": output.map(|o| o.status.success()).unwrap_or(false)})
@@ -1225,7 +1250,7 @@ impl Daemon {
                     .args(["-fsS", "-X", "PUT", "--noproxy", "*", "--max-time", "3"])
                     .arg(format!("http://127.0.0.1:{port}/proxies/{group}"))
                     .arg("-d")
-                    .arg(format!(r#"{{"name":"{proxy}"}}"#))
+                    .arg(serde_json::json!({"name": proxy}).to_string())
                     .output()
                     .await;
                 serde_json::json!({"ok": output.map(|o| o.status.success()).unwrap_or(false)})
@@ -1908,6 +1933,17 @@ impl Daemon {
                 {
                     return serde_json::json!({"error":"profile not found"});
                 }
+                // Switching profiles must first bring down the current core,
+                // otherwise the previous core, system proxy and TUN state leak.
+                if let Some(current) = *self.connected.lock().await {
+                    if current != id.unwrap() {
+                        if let Err(error) = self.disconnect_profile().await {
+                            return serde_json::json!({"error":format!("disconnect current before connect: {error}")});
+                        }
+                    } else {
+                        return serde_json::json!({"accepted":true,"state":"CONNECTED","profileId":id});
+                    }
+                }
                 match self.connect_profile(id.unwrap()).await {
                     Ok(()) => {
                         self.log(format!("connected profile {id:?}")).await;
@@ -2118,10 +2154,12 @@ impl Daemon {
                 let Some(extracted) = extracted else {
                     return serde_json::json!({"error":"could not extract core archive"});
                 };
-                let Some(path) = extracted.iter().find(|p| p.ends_with(binary.as_bytes())) else {
+                let Some((_, bytes)) = extracted.iter().find(|(name, _)| {
+                    name == binary || name.eq_ignore_ascii_case(binary) || name.ends_with(binary)
+                }) else {
                     return serde_json::json!({"error":format!("{binary} not found in archive")});
                 };
-                match update::write_bin(&bin_dir, binary, path) {
+                match update::write_bin(&bin_dir, binary, bytes) {
                     Ok(_) => serde_json::json!({"ok":true,"target":target,"version":tag}),
                     Err(e) => serde_json::json!({"error":e.to_string()}),
                 }
@@ -2155,6 +2193,7 @@ impl Daemon {
                             // sends it explicitly).
                             s.default_profile_id = db.settings.default_profile_id;
                             s.ui = db.settings.ui.clone();
+                            s.sub_convert_url = db.settings.sub_convert_url.clone();
                             if !dns_present {
                                 s.dns = db.settings.dns.clone();
                             }

@@ -159,7 +159,14 @@ Item {
 
   function loadUiState() {
     rpc.call("ui.get", {}, function (state) {
-      if (state && state.activePageId) root.activePageId = state.activePageId
+      if (state && state.activePageId) {
+        for (var i = 0; i < root.navPages.length; i++) {
+          if (root.navPages[i].id === state.activePageId) {
+            root.activePageId = state.activePageId
+            return
+          }
+        }
+      }
     })
   }
 
@@ -377,6 +384,13 @@ Item {
     if (event.key === Qt.Key_Escape) { root.requestClose(); event.accepted = true; return }
     if (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_V) { root.importClipboard(); event.accepted = true; return }
   }
+
+  // Let the active page handle page-specific shortcuts (Delete, Ctrl+C, …)
+  // even though focus stays on this root. The page accepts what it owns and
+  // falls through to the handlers above otherwise.
+  Keys.forwardTo: pageLoader.item ? [pageLoader.item] : []
+
+  function contextMenuVisible() { return contextMenu.visible }
 
   // suppress outside-click dismissal while a sheet is open
   readonly property bool anySheetOpen: sheetHost.stack.length > 0
@@ -660,21 +674,6 @@ Item {
   }
 
   // ---- settings sheets ------------------------------------------------------------
-  function openOptionSetting() {
-    sheetHost.open(Qt.createComponent("dialogs/OptionSetting.qml"), {
-      rpc: rpc, app: root, title: Strings.tr("optSetting"), maximized: true
-    })
-  }
-  function openRoutingSetting() {
-    sheetHost.open(Qt.createComponent("dialogs/RoutingSetting.qml"), {
-      rpc: rpc, app: root, title: Strings.tr("routingSetting"), maximized: true
-    })
-  }
-  function openDnsSetting() {
-    sheetHost.open(Qt.createComponent("dialogs/DnsSetting.qml"), {
-      rpc: rpc, app: root, title: Strings.tr("dnsSetting"), maximized: true
-    })
-  }
   function openBackupRestore() {
     sheetHost.open(Qt.createComponent("dialogs/BackupRestore.qml"), {
       rpc: rpc, app: root, title: Strings.tr("backupTitle"), maximized: true
@@ -747,6 +746,7 @@ Item {
   }
 
   function clearLogs() {
+    if (rpc.ready) rpc.call("system.logs.clear", {}, function () {})
     if (pageLoader.item && typeof pageLoader.item.clearLogs === "function") pageLoader.item.clearLogs()
   }
 

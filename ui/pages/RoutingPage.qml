@@ -198,6 +198,15 @@ Item {
       radius: Style.cornerRadius
       color: mouse.hovered ? Util.alpha(Color.foreground, 0.05) : "transparent"
     }
+
+    // Below the content so the delete button keeps its own click target.
+    MouseArea {
+      id: mouse
+      anchors.fill: parent
+      hoverEnabled: true
+      onClicked: row.clicked()
+    }
+
     RowLayout {
       anchors.fill: parent
       anchors.leftMargin: Style.space(10)
@@ -239,12 +248,6 @@ Item {
         Layout.preferredHeight: Style.spacing.controlHeight
         onClicked: row.deleteRequested()
       }
-    }
-    MouseArea {
-      id: mouse
-      anchors.fill: parent
-      hoverEnabled: true
-      onClicked: row.clicked()
     }
   }
 

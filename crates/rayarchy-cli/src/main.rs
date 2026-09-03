@@ -12,6 +12,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let base = env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
         .unwrap_or_else(|| PathBuf::from("/tmp"));
     let daemon = Client::new(base.join("rayarchy/state.json"))?;
     let mut args = env::args().skip(1);
