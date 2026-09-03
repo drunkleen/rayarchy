@@ -53,41 +53,8 @@ systemctl --user daemon-reload
 systemctl --user enable rayarchy.service
 systemctl --user restart rayarchy.service
 
-# --- Omarchy shell integration -------------------------------------------------
-# The UI ships as a shell plugin (panel window + bar status widget) that lives
-# in this repository. Discover it in the running shell, then enable the panel
-# and place the status widget in the right bar section.
-if command -v omarchy-shell >/dev/null 2>&1 && command -v omarchy >/dev/null 2>&1; then
-  omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
-  omarchy plugin enable com.drunkleen.rayarchy right >/dev/null 2>&1 || true
-  # Launcher/menu entry: merge a Rayarchy row into the user's omarchy-menu
-  # extensions file so Super+space -> "rayarchy" opens the panel.
-  menu_file="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
-  if [[ ! -f "$menu_file" ]]; then
-    cat > "$menu_file" <<'MENU'
-{"rayarchy":{"icon":"⛨","label":"Rayarchy","action":"omarchy-shell shell toggle com.drunkleen.rayarchy '{}'"}}
-MENU
-  elif ! grep -q '"rayarchy"' "$menu_file" 2>/dev/null; then
-    if command -v python3 >/dev/null 2>&1; then
-      python3 - "$menu_file" <<'PY' || true
-import json, re, sys, pathlib
-path = pathlib.Path(sys.argv[1])
-raw = path.read_text()
-# Strip JSONC comments (best-effort; single URLs with // are rare in menus).
-text = re.sub(r'//[^\n]*', '', raw)
-text = re.sub(r'/\*.*?\*/', '', text, flags=re.S)
-data = json.loads(text) if text.strip() else {}
-entry = {"rayarchy": {"icon": "⛨", "label": "Rayarchy",
-                      "action": "omarchy-shell shell toggle com.drunkleen.rayarchy '{}'"}}
-data.setdefault("rayarchy", entry["rayarchy"])
-path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-PY
-    fi
-  fi
-fi
-
 [[ -n "$release_tmp" ]] && rm -rf "$release_tmp"
 echo "Rayarchy backend installed."
 echo "  CLI:    ~/.local/bin/rayarchy status"
-echo "  UI:     Super+space -> 'Rayarchy' or the ⛨ bar widget"
+echo "  UI:     the ⛨ bar widget or: omarchy-shell shell toggle com.drunkleen.rayarchy '{}'"
 echo "  Logs:   journalctl --user -u rayarchy -f"
