@@ -17,11 +17,11 @@ release_tmp=""
 # source when RAYARCHY_BUILD_FROM_SOURCE=1 (dev) or no release exists yet.
 if [[ "${RAYARCHY_BUILD_FROM_SOURCE:-0}" != "1" ]] && command -v curl >/dev/null && command -v tar >/dev/null && command -v sha256sum >/dev/null && command -v jq >/dev/null; then
   release_tmp=$(mktemp -d)
-  archive="$release_tmp/rayarchy.tar.gz"
-  checksum="$release_tmp/rayarchy.tar.gz.sha256"
   release_tag=$(curl -fsSL --connect-timeout 5 --max-time 15 https://api.github.com/repos/drunkleen/rayarchy/releases/latest | jq -r '.tag_name // empty' || true)
   if [[ -n "$release_tag" ]]; then
-    archive_url="https://github.com/drunkleen/rayarchy/releases/download/${release_tag}/rayarchy-${release_tag}-x86_64.tar.gz"
+    archive="$release_tmp/rayarchy-${release_tag}-x86_64.tar.gz"
+    checksum="$release_tmp/rayarchy-${release_tag}-x86_64.tar.gz.sha256"
+    archive_url="https://github.com/drunkleen/rayarchy/releases/download/${release_tag}/$(basename "$archive")"
     checksum_url="${archive_url}.sha256"
     if curl -fsSL --connect-timeout 5 --max-time 30 "$archive_url" -o "$archive" \
       && curl -fsSL --connect-timeout 5 --max-time 30 "$checksum_url" -o "$checksum" \
