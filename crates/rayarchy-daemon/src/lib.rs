@@ -24,6 +24,19 @@ fn valid_subscription_url(url: &str) -> bool {
     (trimmed.starts_with("https://") || trimmed.starts_with("http://")) && trimmed.len() > 8
 }
 
+fn urlencoding(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for byte in input.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
 fn validate_profile(profile: &Profile) -> Result<(), String> {
     use rayarchy_core::protocol::Protocol;
 
@@ -1609,20 +1622,39 @@ impl Daemon {
                 let Some(id) = id else {
                     return serde_json::json!({"error":"invalid subscription id"});
                 };
-                let url = {
+                let (url, more_url, filter, user_agent, convert_target, convert_url) = {
                     let db = self.db.lock().await;
                     match db.subscriptions.iter().find(|s| s.id == id) {
-                        Some(s) if s.enabled => s.url.clone(),
+                        Some(s) if s.enabled => (
+                            s.url.clone(),
+                            s.more_url.clone(),
+                            s.filter.clone(),
+                            s.user_agent.clone(),
+                            s.convert_target.clone(),
+                            db.settings.sub_convert_url.clone(),
+                        ),
                         Some(_) => return serde_json::json!({"error":"subscription is disabled"}),
                         None => return serde_json::json!({"error":"subscription not found"}),
                     }
                 };
-                let output = match tokio::process::Command::new("curl")
-                    .args(["-fsSL", "--max-time", "20"])
-                    .arg(&url)
-                    .output()
-                    .await
-                {
+                let effective_url = if let Some(converter) = convert_url.as_deref() {
+                    if let Some(target) = convert_target.as_deref() {
+                        let encoded = urlencoding(&url);
+                        format!("{converter}sub?target={target}&url={encoded}")
+                    } else {
+                        url.clone()
+                    }
+                } else {
+                    url.clone()
+                };
+                let mut command = tokio::process::Command::new("curl");
+                command.args(["-fsSL", "--max-time", "20"]);
+                if let Some(ua) = user_agent.as_deref() {
+                    if !ua.trim().is_empty() {
+                        command.arg("-A").arg(ua);
+                    }
+                }
+                let output = match command.arg(&effective_url).output().await {
                     Ok(v) if v.status.success() => v,
                     Ok(_) => {
                         self.set_subscription_error(
@@ -1638,8 +1670,37 @@ impl Daemon {
                         return serde_json::json!({"error":error});
                     }
                 };
-                let body = String::from_utf8_lossy(&output.stdout);
-                let parsed: Vec<Profile> = rayarchy_core::import::parse_input(&body)
+                let mut bodies = String::from_utf8_lossy(&output.stdout).to_string();
+                if let Some(extra) = more_url.as_deref() {
+                    for extra_url in extra.split(',').map(str::trim).filter(|u| !u.is_empty()) {
+                        let effective_extra = if let Some(converter) = convert_url.as_deref() {
+                            if let Some(target) = convert_target.as_deref() {
+                                format!(
+                                    "{converter}sub?target={target}&url={}",
+                                    urlencoding(extra_url)
+                                )
+                            } else {
+                                extra_url.to_string()
+                            }
+                        } else {
+                            extra_url.to_string()
+                        };
+                        let mut extra_command = tokio::process::Command::new("curl");
+                        extra_command.args(["-fsSL", "--max-time", "20"]);
+                        if let Some(ua) = user_agent.as_deref() {
+                            if !ua.trim().is_empty() {
+                                extra_command.arg("-A").arg(ua);
+                            }
+                        }
+                        if let Ok(output) = extra_command.arg(&effective_extra).output().await {
+                            if output.status.success() {
+                                bodies.push('\n');
+                                bodies.push_str(&String::from_utf8_lossy(&output.stdout));
+                            }
+                        }
+                    }
+                }
+                let mut parsed: Vec<Profile> = rayarchy_core::import::parse_input(&bodies)
                     .unwrap_or_default()
                     .into_iter()
                     .map(|mut p| {
@@ -1647,6 +1708,18 @@ impl Daemon {
                         p
                     })
                     .collect();
+                if let Some(pattern) = filter.as_deref() {
+                    if let Ok(regex) = regex::Regex::new(pattern) {
+                        parsed.retain(|profile| {
+                            regex.is_match(profile.name.as_str())
+                                || profile
+                                    .server
+                                    .as_deref()
+                                    .map(|s| regex.is_match(s))
+                                    .unwrap_or(false)
+                        });
+                    }
+                }
                 if parsed.is_empty() {
                     self.set_subscription_error(
                         id,
@@ -2503,6 +2576,49 @@ mod tests {
         assert_eq!(settings["localPort"], 1081);
         assert_eq!(settings["defaultProfileId"], profile.id.to_string());
         assert_eq!(settings["ui"]["columns"][0]["key"], "delay");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn urlencoding_escapes_query_safe_way() {
+        assert_eq!(
+            urlencoding("https://a.example/sub?x=1&y=two"),
+            "https%3A%2F%2Fa.example%2Fsub%3Fx%3D1%26y%3Dtwo"
+        );
+        assert_eq!(urlencoding("plain"), "plain");
+    }
+
+    #[tokio::test]
+    async fn subscription_advanced_fields_persist() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let sub = Subscription {
+            name: "Adv".into(),
+            url: "https://adv.example/sub".into(),
+            more_url: Some("https://a.example/m,https://b.example/m".into()),
+            filter: Some(r"US|DE".into()),
+            convert_target: Some("clash".into()),
+            user_agent: Some("v2rayN/7".into()),
+            sort: Some(5),
+            memo: Some("notes".into()),
+            ..Default::default()
+        };
+        let created = daemon
+            .dispatch(
+                "subscription.create",
+                serde_json::json!({"subscription":sub}),
+            )
+            .await;
+        let id = created["subscriptionId"].as_str().unwrap();
+        let restarted = Daemon::new(path.clone()).unwrap();
+        let listed = restarted
+            .dispatch("subscription.list", serde_json::json!({}))
+            .await;
+        assert_eq!(listed[0]["id"], id);
+        assert_eq!(listed[0]["filter"], r"US|DE");
+        assert_eq!(listed[0]["convertTarget"], "clash");
+        assert_eq!(listed[0]["sort"], 5);
         let _ = std::fs::remove_file(path);
     }
 

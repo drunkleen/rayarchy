@@ -8,6 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 rayarchy-core = { path = "../rayarchy-core" }
+regex = "1"
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

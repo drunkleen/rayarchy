@@ -76,6 +76,28 @@ pub struct Subscription {
     pub last_error: Option<String>,
     #[serde(default)]
     pub last_refresh_at: Option<i64>,
+    /// Extra comma-separated subscription URLs appended to the main one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub more_url: Option<String>,
+    /// Regex applied to imported remarks (v2rayN SubEdit Filter).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    /// Optional subscription-conversion target (ACL4SSR style).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub convert_target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort: Option<i64>,
+    /// Profile used as the pre-SOCKS/prev hop when this sub feeds a chain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_profile_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_profile_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_core: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memo: Option<String>,
 }
 fn default_true() -> bool {
     true
@@ -115,6 +137,10 @@ pub struct Settings {
     /// persisted alongside the rest of the settings.
     #[serde(default)]
     pub ui: Value,
+    /// Subscription-conversion service prefix used when a sub sets a convert
+    /// target (ACL4SSR compatible: `{prefix}sub?target=..&url=..`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sub_convert_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,6 +170,7 @@ impl Default for Settings {
             health_retention_hours: 24,
             default_profile_id: None,
             ui: Value::Object(Default::default()),
+            sub_convert_url: None,
         }
     }
 }
