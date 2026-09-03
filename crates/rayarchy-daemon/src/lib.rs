@@ -789,6 +789,59 @@ impl Daemon {
                 }
                 serde_json::json!({"results":results,"cancelled":self.bulk_cancel.load(Ordering::Relaxed)})
             }
+            "test.speed.profile" => {
+                if self.connected.lock().await.is_some() {
+                    return serde_json::json!({"error":"disconnect before running a profile speed test"});
+                }
+                let id = params["profileId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let Some(id) = id else {
+                    return serde_json::json!({"error":"profileId is required"});
+                };
+                let profile_name = self
+                    .db
+                    .lock()
+                    .await
+                    .profiles
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map(|p| p.name.clone());
+                let Some(name) = profile_name else {
+                    return serde_json::json!({"error":"profile not found"});
+                };
+                if let Err(error) = self.connect_profile(id).await {
+                    return serde_json::json!({"error":error});
+                }
+                let port = self.db.lock().await.settings.local_port;
+                let start = std::time::Instant::now();
+                let result = tokio::process::Command::new("curl")
+                    .args([
+                        "-fsS",
+                        "-o",
+                        "/dev/null",
+                        "--noproxy",
+                        "",
+                        "--max-time",
+                        "20",
+                        "--proxy",
+                    ])
+                    .arg(format!("http://127.0.0.1:{port}"))
+                    .arg("https://speed.cloudflare.com/__down?bytes=25000000")
+                    .status()
+                    .await;
+                let _ = self.disconnect_profile().await;
+                let seconds = start.elapsed().as_secs_f64();
+                let ok = result.map(|s| s.success()).unwrap_or(false);
+                let mbps = if ok && seconds > 0.0 {
+                    200.0 / seconds
+                } else {
+                    0.0
+                };
+                let row = serde_json::json!({"kind":"speed","profileId":id,"name":name,"ok":ok,"megabitsPerSecond":mbps,"durationMs":start.elapsed().as_millis()});
+                self.record_test(row.clone()).await;
+                row
+            }
             "test.bulk.cancel" => {
                 self.bulk_cancel.store(true, Ordering::Relaxed);
                 serde_json::json!({"ok":true})

@@ -2,10 +2,21 @@
   "schemaVersion": 1,
   "id": "com.drunkleen.rayarchy",
   "name": "Rayarchy",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "author": "DrunkLeen",
-  "description": "Rust v2rayN-inspired proxy backend and CLI for Omarchy",
-  "kinds": ["backend"],
+  "description": "v2rayN-style proxy management for Omarchy: Rust backend plus an Omarchy shell UI",
+  "kinds": ["backend", "panel", "bar-widget"],
   "activation": "on-demand",
-  "entryPoints": {}
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "ui/App.qml",
+    "barWidget": "ui/BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Rayarchy proxy",
+    "description": "Proxy status indicator; click opens the Rayarchy window",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
 }

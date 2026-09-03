@@ -77,6 +77,14 @@ async fn main() -> anyhow::Result<()> {
             }
             print_json(result);
         }
+        "speed-profile" => {
+            let id = args.next().unwrap_or_default();
+            print_json(
+                daemon
+                    .dispatch("test.speed.profile", serde_json::json!({"profileId":id}))
+                    .await,
+            );
+        }
         "best" => {
             let connect = args.any(|arg| arg == "--connect");
             let profiles = daemon.dispatch("profile.list", serde_json::json!({})).await;
@@ -125,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         "help" | "--help" | "-h" => {
-            println!("rayarchy [status|profiles|connect ID|disconnect|set-default ID|default|reload|ip|history|bulk ID...|bulk-proxy ID...|best [--connect]|diagnostics|validate ID|import URI|ui-get]")
+            println!("rayarchy [status|profiles|connect ID|disconnect|set-default ID|default|reload|ip|history|bulk ID...|bulk-proxy ID...|speed-profile ID|best [--connect]|diagnostics|validate ID|import URI|ui-get]")
         }
         command => {
             eprintln!("unknown command: {command}");
