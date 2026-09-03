@@ -42,7 +42,7 @@ Sheet {
 
   Process {
     id: lsProc
-    onFinished: function (exitCode, exitStatus) {
+    onExited: function (exitCode, exitStatus) {
       dialog.listing = false
       var out = []
       var stdout = lsProc.stdout

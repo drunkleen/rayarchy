@@ -55,20 +55,19 @@ Rectangle {
     }
 
     // TUN toggle
-    Row {
+    RowLayout {
       spacing: Style.space(6)
       visible: true
       Text {
         text: "TUN"
         color: Color.muted
         font.pixelSize: Style.font.bodySmall
-        anchors.verticalCenter: parent.verticalCenter
+        Layout.alignment: Qt.AlignVCenter
       }
       ToggleSwitch {
         id: tunSwitch
         checked: false
         enabled: false
-        tooltip: Strings.tr("tunNotAvailable")
       }
     }
 
@@ -79,7 +78,7 @@ Rectangle {
       text: Strings.tr("statusSystemProxy")
       color: Color.muted
       font.pixelSize: Style.font.bodySmall
-      anchors.verticalCenter: parent.verticalCenter
+      Layout.alignment: Qt.AlignVCenter
     }
     ComboBox {
       id: sysProxyCombo
@@ -93,7 +92,7 @@ Rectangle {
       text: Strings.tr("statusRouting")
       color: Color.muted
       font.pixelSize: Style.font.bodySmall
-      anchors.verticalCenter: parent.verticalCenter
+      Layout.alignment: Qt.AlignVCenter
     }
     ComboBox {
       id: routingCombo
@@ -118,21 +117,24 @@ Rectangle {
     }
 
     // Running server + availability readout
-    Column {
-      spacing: 1
+    Item {
       Layout.preferredWidth: 240
       Text {
         id: runningText
-        width: parent.width
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
         elide: Text.ElideRight
         text: root.statusText()
         color: root.status.connected ? Color.accent : Color.foreground
         font.pixelSize: Style.font.bodySmall
-        font.bold: root.status.connected
+        font.bold: root.status.connected === true
       }
       Text {
         id: infoText
-        width: parent.width
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: runningText.bottom
         elide: Text.ElideRight
         text: root.infoText()
         color: Color.muted

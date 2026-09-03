@@ -118,13 +118,15 @@ Item {
       Button {
         text: "✎"
         flat: true
-        tooltip: Strings.tr("subEdit")
+        ToolTip.text: Strings.tr("subEdit")
+        ToolTip.visible: hovered
         onClicked: root.app.editSubscription(root.selectedGroup)
       }
       Button {
         text: "＋"
         flat: true
-        tooltip: Strings.tr("subAdd")
+        ToolTip.text: Strings.tr("subAdd")
+        ToolTip.visible: hovered
         onClicked: root.app.addSubscription()
       }
 
@@ -140,20 +142,23 @@ Item {
       Button {
         text: "⇄"
         flat: true
-        tooltip: Strings.tr("autofit")
+        ToolTip.text: Strings.tr("autofit")
+        ToolTip.visible: hovered
         onClicked: root.app.autofitColumns()
       }
       Button {
         text: "⚡"
         flat: true
-        tooltip: Strings.tr("fastRealPing")
+        ToolTip.text: Strings.tr("fastRealPing")
+        ToolTip.visible: hovered
         enabled: !root.testing
         onClicked: root.fastRealPing()
       }
       Button {
         text: "⧖"
         flat: true
-        tooltip: Strings.tr("mixedTest")
+        ToolTip.text: Strings.tr("mixedTest")
+        ToolTip.visible: hovered
         enabled: !root.testing
         onClicked: root.mixedTest()
       }

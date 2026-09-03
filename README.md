@@ -1,16 +1,27 @@
 # Rayarchy
 
-Current release channel: **0.1.0-beta.1**. See [docs/beta.md](docs/beta.md)
+Current release channel: **0.1.0-beta.2**. See [docs/beta.md](docs/beta.md)
 for the install flow and known beta limits.
 
 Rust v2rayN-inspired proxy management for Omarchy. It provides a systemd user
-daemon, JSON-RPC Unix socket, and command-line client. There is no graphical UI.
+daemon, JSON-RPC Unix socket, a command-line client, and a **v2rayN-style
+graphical UI** rendered inside the Omarchy shell: a panel window (server list,
+status bar, message console, subscription/routing/DNS/settings dialogs) plus a
+bar status widget and a launcher/menu entry. Every dialog is an inline sheet
+in the same window — no external popups.
 
-Clone through Omarchy, then install the backend:
+Clone through Omarchy, then install the backend and enable the shell UI:
 
 ```sh
 omarchy plugin add https://github.com/drunkleen/rayarchy --enable
 RAYARCHY_BUILD_FROM_SOURCE=1 ~/.config/omarchy/plugins/com.drunkleen.rayarchy/setup.sh
+omarchy plugin enable com.drunkleen.rayarchy right
+```
+
+Open the window with the bar widget, the launcher entry, or:
+
+```sh
+omarchy-shell shell toggle com.drunkleen.rayarchy '{}'
 ```
 
 The backend is unprivileged. TUN/transparent routing and kill-switch
@@ -30,6 +41,10 @@ Use the explicitly installed client if an old `/usr/local/bin` copy exists:
 ~/.local/bin/rayarchy import 'vless://...'
 ~/.local/bin/rayarchy validate PROFILE_ID
 ~/.local/bin/rayarchy connect PROFILE_ID
+~/.local/bin/rayarchy set-default PROFILE_ID
+~/.local/bin/rayarchy default
+~/.local/bin/rayarchy reload
+~/.local/bin/rayarchy speed-profile PROFILE_ID
 ~/.local/bin/rayarchy ip
 ~/.local/bin/rayarchy disconnect
 ```

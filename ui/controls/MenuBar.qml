@@ -104,7 +104,7 @@ Item {
     root.openDepth = 0
     root.openSubmenu = null
     menuPanel.updatePosition()
-    menuPanel.visible = true
+    menuPanel.open = true
     for (var i = 0; i < menuRow.children.length; i++) {
       var b = menuRow.children[i]
       if (b.open !== undefined) b.open = (b === button)
@@ -112,7 +112,7 @@ Item {
   }
 
   function closeMenu() {
-    menuPanel.visible = false
+    menuPanel.open = false
     root.openButton = null
     root.openSubmenu = null
     root.openItems = []
@@ -127,7 +127,7 @@ Item {
     id: popupOverlay
     anchors.fill: root
     z: 200
-    visible: menuPanel.visible
+    visible: menuPanel.open
 
     MouseArea {
       anchors.fill: parent
@@ -143,11 +143,11 @@ Item {
 
   component MenuPanel: Item {
     id: panelRoot
-    property bool visible: false
+    property bool open: false
 
     Rectangle {
       id: panel
-      visible: panelRoot.visible
+      visible: panelRoot.open
       width: Math.min(Style.space(280), panelRoot.width - 8)
       implicitHeight: list.count * Style.spacing.popupRowHeight + Style.space(8)
       color: root.surfaceColor

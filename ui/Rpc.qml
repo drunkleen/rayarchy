@@ -78,7 +78,7 @@ Item {
 
   Process {
     id: startProc
-    onFinished: function (exitCode, exitStatus) {
+    onExited: function (exitCode, exitStatus) {
       if (exitCode !== 0) {
         // Fall back to a direct spawn of the daemon binary on PATH.
         directProc.command = "rayarchy-daemon"
@@ -91,7 +91,7 @@ Item {
 
   Process {
     id: directProc
-    onFinished: function () {
+    onExited: function () {
       waitConnect.restart()
     }
   }
