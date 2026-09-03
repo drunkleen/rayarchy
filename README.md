@@ -10,26 +10,47 @@ status bar, message console, subscription/routing/DNS/settings dialogs) plus a
 bar status widget and a launcher/menu entry. Every dialog is an inline sheet
 in the same window — no external popups.
 
-Clone through Omarchy, then install the backend and enable the shell UI:
+## Install (one command)
 
 ```sh
-omarchy plugin add https://github.com/drunkleen/rayarchy --enable
-RAYARCHY_BUILD_FROM_SOURCE=1 ~/.config/omarchy/plugins/com.drunkleen.rayarchy/setup.sh
-omarchy plugin enable com.drunkleen.rayarchy right
+curl -fsSL https://github.com/drunkleen/rayarchy/raw/master/install.sh | bash
 ```
 
-Open the window with the bar widget, the launcher entry, or:
+That clones the plugin through `omarchy`, installs the backend
+(daemon/CLI/helper under `~/.local/bin`, a systemd user service), enables the
+shell panel + bar widget, and adds a launcher/menu entry. No Rust toolchain is
+needed when a release archive exists for the current version.
+
+**Update an existing install:**
+
+```sh
+~/.config/omarchy/plugins/com.drunkleen.rayarchy/install.sh
+# or, manually:
+omarchy plugin update com.drunkleen.rayarchy
+~/.config/omarchy/plugins/com.drunkleen.rayarchy/setup.sh
+```
+
+**Open the window** with the ⛨ bar widget, Super+space → “Rayarchy”, or:
 
 ```sh
 omarchy-shell shell toggle com.drunkleen.rayarchy '{}'
 ```
 
-The backend is unprivileged. TUN/transparent routing and kill-switch
-support are intentionally refused until their narrowly-scoped helper is
-installed and enabled by a future release.
+The backend is unprivileged; TUN/transparent/kill-switch go through a
+polkit-authorized helper (`rayarchy-helper`) installed by `setup.sh`.
 
-Development status and the parity checklist are in `TODO.md` and
-`instructions.md`.
+## Maintainers: release (one command)
+
+```sh
+./scripts/release.sh                  # release the version in manifest.json
+./scripts/release.sh --bump 0.1.0-beta.5   # bump + commit + release
+./scripts/release.sh --local          # build locally + publish with gh
+./scripts/release.sh --dry-run        # preview
+```
+
+It pushes `master`, tags `v<version>`, and pushes the tag; CI builds and
+attaches the release archive (or `--local` publishes immediately with `gh`).
+End-user `install.sh` then auto-downloads that exact archive.
 
 ## CLI usage
 
@@ -69,7 +90,7 @@ Batch testing and fastest-profile selection are also available:
 ~/.local/bin/rayarchy best --connect
 ```
 
-After upgrading from an older Rayarchy build, rerun `setup.sh` from the cloned
-checkout. It rebuilds and installs both the daemon and CLI under
-`~/.local/bin`, then reloads the user service; this avoids accidentally
-testing a stale `/usr/local/bin` binary.
+After upgrading from an older Rayarchy build, rerun `install.sh` (or
+`setup.sh`) from the checkout. It rebuilds/redownloads and installs the daemon
+and CLI under `~/.local/bin`, then reloads the user service; this avoids
+accidentally testing a stale `/usr/local/bin` binary.

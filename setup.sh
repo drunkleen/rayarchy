@@ -31,7 +31,11 @@ if [[ "${RAYARCHY_BUILD_FROM_SOURCE:-0}" != "1" ]] && command -v curl >/dev/null
     helper_bin="$release_tmp/rayarchy/rayarchy-helper"
     echo "Using Rayarchy ${release_tag} release binaries"
   else
-    echo "Release ${release_tag} unavailable or checksum failed; building from source"
+    if [[ "$release_tag" != "v${version}" ]]; then
+      echo "Latest release is ${release_tag}, not v${version}; building from source"
+    else
+      echo "No release archive for v${version} yet; building from source"
+    fi
   fi
 fi
 if [[ -z "$daemon_bin" || -z "$cli_bin" ]]; then
@@ -83,4 +87,7 @@ PY
 fi
 
 [[ -n "$release_tmp" ]] && rm -rf "$release_tmp"
-echo "Rayarchy backend installed. Run ~/.local/bin/rayarchy --help."
+echo "Rayarchy backend installed."
+echo "  CLI:    ~/.local/bin/rayarchy status"
+echo "  UI:     Super+space -> 'Rayarchy' or the ⛨ bar widget"
+echo "  Logs:   journalctl --user -u rayarchy -f"

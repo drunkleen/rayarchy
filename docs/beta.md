@@ -1,18 +1,16 @@
 # Rayarchy beta
 
-Rayarchy beta is installable as an Omarchy package with a shell UI:
+Rayarchy beta installs as an Omarchy package with a shell UI in one command:
 
 ```sh
-omarchy plugin add https://github.com/drunkleen/rayarchy --enable
-cd ~/.config/omarchy/plugins/com.drunkleen.rayarchy
-RAYARCHY_BUILD_FROM_SOURCE=1 ./setup.sh
-omarchy plugin enable com.drunkleen.rayarchy right
+curl -fsSL https://github.com/drunkleen/rayarchy/raw/master/install.sh | bash
 ```
 
-`setup.sh` builds the Rust backend, installs the user systemd service,
-restarts it, discovers the plugin in the running shell, enables the panel and
-bar status widget, and adds a Rayarchy launcher/menu entry. It does not install
-Polkit rules or change system-wide networking.
+`install.sh` clones the plugin through `omarchy`, then runs `setup.sh`, which
+installs the user systemd service (restarting it), enables the panel and bar
+status widget, and adds a Rayarchy launcher/menu entry. It does not install
+Polkit rules or change system-wide networking. Updates are the same command
+again (or `omarchy plugin update com.drunkleen.rayarchy` + `setup.sh`).
 
 The beta includes the v2rayN-style shell UI (server list, status bar, message
 console, Clash Proxies/Connections tabs while sing-box runs, subscription/

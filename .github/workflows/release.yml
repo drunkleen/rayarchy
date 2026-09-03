@@ -20,6 +20,8 @@ jobs:
           install -Dm755 target/release/rayarchy-helper dist/rayarchy/rayarchy-helper
           install -Dm755 setup.sh dist/rayarchy/setup.sh
           install -Dm755 packaging/uninstall.sh dist/rayarchy/uninstall.sh
+          install -Dm755 install.sh dist/rayarchy/install.sh
+          cp -r scripts dist/rayarchy/scripts
           cp manifest.json dist/rayarchy/
           cp -r ui dist/rayarchy/ui
           tar -C dist -czf "rayarchy-${GITHUB_REF_NAME}-x86_64.tar.gz" rayarchy
