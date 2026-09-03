@@ -2,8 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import qs.Commons
 
-// Inline right-click context menu. Shown at an absolute position inside the
-// window; supports separators, checked items, and one submenu level.
+// Inline context menu / dropdown. Shown at a position inside the window;
+// supports separators, checked items, and one submenu level. The root fills
+// the window so an outside click closes it; the panel is positioned with its
+// own x/y (the root cannot be moved, it is anchored).
 Item {
   id: root
 
@@ -16,11 +18,15 @@ Item {
   visible: false
   z: 500
 
+  property int panelX: 0
+  property int panelY: 0
+
   function showAt(x, y, items, callback) {
-    root.x = x
-    root.y = y
     root.items = items
     root.callback = callback
+    root.panelX = x
+    root.panelY = y
+    root.submenuVisible = false
     root.visible = true
     root.clampToWindow()
   }
@@ -33,22 +39,25 @@ Item {
   function clampToWindow() {
     var w = root.parent ? root.parent.width : 1280
     var h = root.parent ? root.parent.height : 820
-    if (root.x + panel.width > w) root.x = Math.max(0, w - panel.width)
-    if (root.y + panel.height > h) root.y = Math.max(0, h - panel.height)
+    if (root.panelX + panel.width > w) root.panelX = Math.max(0, w - panel.width)
+    if (root.panelY + panel.height > h) root.panelY = Math.max(0, h - panel.height)
   }
 
   property bool submenuVisible: false
   property var submenuItems: []
   property int submenuRowY: 0
 
+  // Backdrop: below the panel (declared first), closes on outside click.
   MouseArea {
     anchors.fill: parent
     anchors.margins: -4
-    onClicked: { }
+    onClicked: root.hide()
   }
 
   Rectangle {
     id: panel
+    x: root.panelX
+    y: root.panelY
     width: Math.max(contents.implicitWidth, Style.space(230))
     implicitHeight: contents.count * Style.spacing.popupRowHeight + Style.space(8)
     color: root.surfaceColor
@@ -75,6 +84,7 @@ Item {
             root.submenuRowY = rowY
             root.submenuVisible = true
           }
+          onSubmenuCleared: root.submenuVisible = false
         }
       }
     }
@@ -85,8 +95,18 @@ Item {
     visible: root.submenuVisible
     width: Style.space(250)
     implicitHeight: submenuContents.count * Style.spacing.popupRowHeight + Style.space(8)
-    x: panel.width - Style.space(4)
-    y: root.submenuRowY
+    x: {
+      var right = root.panelX + panel.width - Style.space(4) + width
+      var limit = root.parent ? root.parent.width : 1280
+      if (right > limit) return Math.max(0, root.panelX - width + Style.space(4))
+      return root.panelX + panel.width - Style.space(4)
+    }
+    y: {
+      var bottom = root.panelY + root.submenuRowY + implicitHeight
+      var limit = root.parent ? root.parent.height : 820
+      if (bottom > limit) return Math.max(0, limit - implicitHeight)
+      return root.panelY + root.submenuRowY
+    }
     color: root.surfaceColor
     border.color: root.surfaceBorder
     border.width: 1
@@ -116,6 +136,7 @@ Item {
     property bool hovered: false
     signal triggered(var item)
     signal submenuRequested(var item, int rowY)
+    signal submenuCleared()
 
     width: parent.width
     height: item.separator ? Style.space(9) : Style.spacing.popupRowHeight
@@ -162,12 +183,13 @@ Item {
       hoverEnabled: true
       onEntered: {
         row.hovered = true
-        if (item.submenu && item.submenu.length) row.submenuRequested(item, row.mapToItem(root, 0, 0).y)
+        if (item.submenu && item.submenu.length) {
+          row.submenuRequested(item, row.mapToItem(panel, 0, 0).y)
+        } else {
+          row.submenuCleared()
+        }
       }
-      onExited: {
-        row.hovered = false
-        if (item.submenu && item.submenu.length) root.submenuVisible = false
-      }
+      onExited: row.hovered = false
       onClicked: {
         if (item.separator) return
         if (item.enabled === false) return

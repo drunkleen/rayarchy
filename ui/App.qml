@@ -261,8 +261,9 @@ Item {
           id: menuBar
           Layout.fillWidth: true
           Layout.bottomMargin: 2
-          items: root.menuItems
-          onItemActivated: function (item) { root.handleMenu(item) }
+          app: root
+          onReloadRequested: root.reload()
+          onCloseRequested: root.requestClose()
         }
 
         Rectangle {
@@ -349,6 +350,11 @@ Item {
       Keys.onPressed: function (event) {
         if (sheetHost.stack.length > 0) {
           if (event.key === Qt.Key_Escape) { sheetHost.closeTop(); event.accepted = true; return }
+          event.accepted = false
+          return
+        }
+        if (contextMenu.visible) {
+          if (event.key === Qt.Key_Escape) { contextMenu.hide(); event.accepted = true; return }
           event.accepted = false
           return
         }

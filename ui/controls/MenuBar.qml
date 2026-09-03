@@ -2,330 +2,66 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import qs.Commons
+import "../strings.js" as Strings
 
-// Minimal top menu bar replicating v2rayN's main menu structure. Menus open
-// as inline dropdown panels anchored to their button; submenus open to the
-// side. Everything renders inside the window.
+// Minimal top bar: one menu button that opens the full menu through the app's
+// ContextMenu overlay (the same mechanism as right-click menus), plus a reload
+// and close quick action. Everything renders inside the window.
 Item {
   id: root
 
-  property var items: []      // [{label, icon, action, enabled, checked, separator, submenu}]
+  property var app: null
   property color textColor: Color.foreground
-  property color surfaceColor: Color.popups.background
-  property color surfaceText: Color.popups.text
-  property color surfaceBorder: Color.popups.border
-
-  signal itemActivated(var item)
+  signal reloadRequested()
+  signal closeRequested()
 
   height: Style.spacing.controlHeight + Style.space(10)
 
   RowLayout {
-    id: menuRow
     anchors.fill: parent
     anchors.leftMargin: Style.space(8)
     anchors.rightMargin: Style.space(8)
-    spacing: Style.space(4)
+    spacing: Style.space(6)
 
-    Repeater {
-      model: root.items
-      delegate: MenuButton {
-        required property var modelData
-        label: modelData.label
-        enabled: modelData.enabled !== false
-        textColor: root.textColor
-        onActivated: function (item) { root.itemActivated(item) }
-      }
-    }
-  }
-
-  component MenuButton: Item {
-    id: button
-    property string label: ""
-    property color textColor: Color.foreground
-    property bool open: false
-    signal activated(var item)
-
-    width: menuLabel.implicitWidth + Style.space(18)
-    height: parent.height
-
-    Rectangle {
-      anchors.fill: parent
-      radius: Style.cornerRadius
-      color: button.open || hover.hovered
-        ? Util.alpha(Color.foreground, 0.08)
-        : "transparent"
-    }
-
-    Text {
-      id: menuLabel
-      anchors.centerIn: parent
-      text: button.label
-      color: button.enabled ? button.textColor : Util.alpha(button.textColor, 0.4)
+    // App title + menu button
+    Button {
+      id: menuButton
+      flat: true
+      Layout.preferredHeight: Style.spacing.controlHeight
+      text: "⛨  Rayarchy"
       font.pixelSize: Style.font.body
+      onClicked: root.openMenu()
+      ToolTip.text: Strings.tr("menuServers")
+      ToolTip.visible: hovered
     }
 
-    MouseArea {
-      id: hover
-      anchors.fill: parent
-      hoverEnabled: true
-      onClicked: {
-        if (!button.enabled) return
-        root.openMenuFor(button)
-      }
-    }
-  }
+    Item { Layout.fillWidth: true }
 
-  // ---- dropdown panel state -------------------------------------------------
-  property Item openButton: null
-  property var openSubmenu: null
-  property var openItems: []
-  property var openCallback: null
-  property int openDepth: 0
-  property int openSubmenuY: 0
-
-  function itemFor(button) {
-    // Find the manifest entry for the button that opened the menu.
-    for (var i = 0; i < root.items.length; i++) {
-      if (root.items[i].label === button.label) return root.items[i]
+    Button {
+      flat: true
+      Layout.preferredWidth: Style.spacing.controlHeight + 2
+      Layout.preferredHeight: Style.spacing.controlHeight
+      text: "⟳"
+      onClicked: root.reloadRequested()
+      ToolTip.text: Strings.tr("menuReload")
+      ToolTip.visible: hovered
     }
-    return root.items[0] || {}
-  }
-
-  function openMenuFor(button) {
-    var entry = root.itemFor(button)
-    var submenu = entry.submenu || []
-    if (submenu.length === 0) {
-      root.itemActivated({ label: button.label, item: entry })
-      return
-    }
-    root.openButton = button
-    root.openItems = submenu
-    root.openCallback = function (item) { root.itemActivated(item) }
-    root.openDepth = 0
-    root.openSubmenu = null
-    root.openSubmenuY = 0
-    menuPanel.open = true
-    for (var i = 0; i < menuRow.children.length; i++) {
-      var b = menuRow.children[i]
-      if (b.open !== undefined) b.open = (b === button)
+    Button {
+      flat: true
+      Layout.preferredWidth: Style.spacing.controlHeight + 2
+      Layout.preferredHeight: Style.spacing.controlHeight
+      text: "✕"
+      onClicked: root.closeRequested()
+      ToolTip.text: Strings.tr("menuClose")
+      ToolTip.visible: hovered
     }
   }
 
-  function closeMenu() {
-    menuPanel.open = false
-    root.openButton = null
-    root.openSubmenu = null
-    root.openItems = []
-    for (var i = 0; i < menuRow.children.length; i++) {
-      var b = menuRow.children[i]
-      if (b.open !== undefined) b.open = false
-    }
-  }
-
-  // ---- popup panel ----------------------------------------------------------
-  Item {
-    id: popupOverlay
-    anchors.fill: root
-    z: 200
-    visible: menuPanel.open
-
-    MouseArea {
-      anchors.fill: parent
-      onClicked: root.closeMenu()
-    }
-
-    MenuPanel {
-      id: menuPanel
-      anchors.fill: parent
-      visible: false
-    }
-  }
-
-  component MenuPanel: Item {
-    id: panelRoot
-    property bool open: false
-
-    Rectangle {
-      id: panel
-      visible: panelRoot.open
-      width: Math.min(Style.space(280), panelRoot.width - 8)
-      implicitHeight: list.count * Style.spacing.popupRowHeight + Style.space(8)
-      color: root.surfaceColor
-      border.color: root.surfaceBorder
-      border.width: 1
-      radius: Style.cornerRadius
-      z: 300
-
-      x: {
-        var bx = 0
-        var by = 0
-        if (root.openButton) {
-          var pos = root.openButton.mapToItem(panelRoot, 0, root.openButton.height)
-          bx = pos.x
-          by = pos.y
-        }
-        return bx
-      }
-      y: {
-        var bx = 0
-        var by = 0
-        if (root.openButton) {
-          var pos = root.openButton.mapToItem(panelRoot, 0, root.openButton.height)
-          bx = pos.x
-          by = pos.y
-        }
-        return by
-      }
-
-      // Submenu opens to the right of the hovered/clicked row.
-      Item {
-        id: submenuPlaceholder
-        x: 0
-        y: 0
-        width: 1
-        height: 1
-      }
-
-      ListView {
-        id: list
-        anchors.fill: parent
-        anchors.margins: Style.space(4)
-        clip: true
-        model: root.openItems
-        delegate: Row {
-          id: rowDelegate
-          required property var modelData
-          property bool hovered: false
-          width: list.width
-          height: Style.spacing.popupRowHeight
-
-          Rectangle {
-            anchors.fill: parent
-            radius: Style.cornerRadius
-            color: rowDelegate.hovered
-              ? Util.alpha(root.surfaceText, 0.08)
-              : "transparent"
-          }
-
-          Text {
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: Style.space(10)
-            text: modelData.separator ? "" : (modelData.label || "")
-            color: rowDelegate.hovered
-              ? root.surfaceText
-              : (modelData.enabled === false ? Util.alpha(root.surfaceText, 0.4) : root.surfaceText)
-            font.pixelSize: Style.font.body
-            visible: !modelData.separator
-          }
-
-          Text {
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.rightMargin: Style.space(8)
-            text: modelData.submenu && modelData.submenu.length ? "›" : (modelData.checked ? "✓" : "")
-            color: root.surfaceText
-            font.pixelSize: Style.font.body
-          }
-
-          MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            onEntered: {
-              rowDelegate.hovered = true
-              if (modelData.submenu && modelData.submenu.length) {
-                root.openSubmenu = modelData.submenu
-                root.openSubmenuY = Style.space(4) + index * Style.spacing.popupRowHeight
-              }
-            }
-            onExited: rowDelegate.hovered = false
-            onClicked: {
-              if (modelData.separator) return
-              if (modelData.submenu && modelData.submenu.length) {
-                root.openSubmenu = modelData.submenu
-                root.openSubmenuY = Style.space(4) + index * Style.spacing.popupRowHeight
-                return
-              }
-              if (modelData.enabled === false) return
-              var item = modelData
-              root.closeMenu()
-              if (root.openCallback) root.openCallback(item)
-            }
-          }
-        }
-      }
-
-      // Nested submenu panel (one level).
-      Rectangle {
-        id: submenu
-        visible: root.openSubmenu !== null
-        width: Style.space(260)
-        implicitHeight: submenuList.count * Style.spacing.popupRowHeight + Style.space(8)
-        color: root.surfaceColor
-        border.color: root.surfaceBorder
-        border.width: 1
-        radius: Style.cornerRadius
-        z: 400
-
-        x: panel.width - Style.space(4)
-        y: root.openSubmenuY
-
-        ListView {
-          id: submenuList
-          anchors.fill: parent
-          anchors.margins: Style.space(4)
-          clip: true
-          model: root.openSubmenu
-          delegate: Row {
-            required property var modelData
-            property bool hovered: false
-            width: submenuList.width
-            height: Style.spacing.popupRowHeight
-
-            Rectangle {
-              anchors.fill: parent
-              radius: Style.cornerRadius
-              color: hovered ? Util.alpha(root.surfaceText, 0.08) : "transparent"
-            }
-            Text {
-              anchors.left: parent.left
-              anchors.verticalCenter: parent.verticalCenter
-              anchors.leftMargin: Style.space(10)
-              text: modelData.label || ""
-              color: modelData.enabled === false ? Util.alpha(root.surfaceText, 0.4) : root.surfaceText
-              font.pixelSize: Style.font.body
-            }
-            Text {
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              anchors.rightMargin: Style.space(8)
-              text: modelData.checked ? "✓" : ""
-              color: root.surfaceText
-              font.pixelSize: Style.font.body
-            }
-            MouseArea {
-              anchors.fill: parent
-              hoverEnabled: true
-              onEntered: hovered = true
-              onExited: hovered = false
-              onClicked: {
-                if (modelData.enabled === false) return
-                var item = modelData
-                root.closeMenu()
-                if (root.openCallback) root.openCallback(item)
-              }
-            }
-          }
-        }
-      }
-
-      function openSubmenuAt(items) {
-        root.openSubmenu = items
-      }
-
-      function updatePosition() {
-        // no-op; position is computed from root.openButton each frame
-      }
-    }
+  function openMenu() {
+    if (!root.app || !root.app.contextMenu || !root.app.windowContent) return
+    var pos = menuButton.mapToItem(root.app.windowContent, 0, menuButton.height + 4)
+    root.app.contextMenu(root.app.menuItems, pos.x, pos.y, function (item) {
+      if (item && item.action) root.app.handleMenu(item)
+    })
   }
 }
