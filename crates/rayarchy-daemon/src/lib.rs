@@ -903,6 +903,7 @@ impl Daemon {
                 let sort = params["sort"].as_str().unwrap_or("manual");
                 let db = self.db.lock().await;
                 let history = db.test_history.clone();
+                let default_id = db.settings.default_profile_id;
                 let retention = i64::from(db.settings.health_retention_hours.max(1)) * 60 * 60;
                 let mut profiles: Vec<_> = db
                     .profiles
@@ -934,6 +935,12 @@ impl Daemon {
                 let mut output = Vec::with_capacity(profiles.len());
                 for profile in profiles {
                     let mut value = serde_json::to_value(profile).unwrap_or_default();
+                    value["default"] = serde_json::Value::Bool(
+                        value["id"]
+                            .as_str()
+                            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                            == default_id,
+                    );
                     if let Some(test) = history.iter().rev().find(|row| {
                         let fresh = row
                             .get("timestamp")
@@ -1327,6 +1334,29 @@ impl Daemon {
                 let _ = self.save().await;
                 serde_json::json!({"removed":removed})
             }
+            "profile.setDefault" => {
+                let id = params["profileId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let mut db = self.db.lock().await;
+                if let Some(id) = id {
+                    if !db.profiles.iter().any(|p| p.id == id) {
+                        return serde_json::json!({"error":"profile not found"});
+                    }
+                }
+                db.settings.default_profile_id = id;
+                drop(db);
+                let _ = self.save().await;
+                serde_json::json!({"ok":true})
+            }
+            "profile.default" => {
+                let db = self.db.lock().await;
+                db.profiles
+                    .iter()
+                    .find(|p| Some(p.id) == db.settings.default_profile_id)
+                    .map(|p| serde_json::to_value(p).unwrap_or_default())
+                    .unwrap_or(serde_json::Value::Null)
+            }
             "profile.connect.cancel" => {
                 let _ = self.disconnect_profile().await;
                 self.log("connection attempt cancelled by user".to_string())
@@ -1365,6 +1395,36 @@ impl Daemon {
                 }
                 Err(error) => serde_json::json!({"error":error}),
             },
+            "system.reload" => {
+                let active = *self.connected.lock().await;
+                if let Some(id) = active {
+                    if let Err(error) = self.disconnect_profile().await {
+                        return serde_json::json!({"error":error});
+                    }
+                    match self.connect_profile(id).await {
+                        Ok(()) => serde_json::json!({"ok":true,"reloaded":true,"profileId":id}),
+                        Err(error) => serde_json::json!({"ok":false,"error":error,"profileId":id}),
+                    }
+                } else {
+                    serde_json::json!({"ok":true,"reloaded":false})
+                }
+            }
+            "ui.get" => {
+                let db = self.db.lock().await;
+                db.settings.ui.clone()
+            }
+            "ui.set" => {
+                let ui = params
+                    .get("ui")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                if !ui.is_object() {
+                    return serde_json::json!({"error":"ui state must be a JSON object"});
+                }
+                self.db.lock().await.settings.ui = ui;
+                let _ = self.save().await;
+                serde_json::json!({"ok":true})
+            }
             "settings.get" => {
                 serde_json::to_value(&self.db.lock().await.settings).unwrap_or_default()
             }
@@ -2242,5 +2302,81 @@ mod tests {
         );
         configgen::apply_rules(&mut config, rayarchy_core::protocol::Core::SingBox, &[rule]);
         assert_eq!(config["route"]["rules"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn default_profile_can_be_set_queried_and_survives_restart() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Default".into(),
+            server: Some("default.example".into()),
+            ..Default::default()
+        };
+        let id = profile.id;
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        let result = daemon
+            .dispatch("profile.setDefault", serde_json::json!({"profileId":id}))
+            .await;
+        assert_eq!(result["ok"], true);
+        let listed = daemon.dispatch("profile.list", serde_json::json!({})).await;
+        assert_eq!(listed[0]["default"], true);
+        let queried = daemon
+            .dispatch("profile.default", serde_json::json!({}))
+            .await;
+        assert_eq!(queried["id"], id.to_string());
+        let missing = daemon
+            .dispatch(
+                "profile.setDefault",
+                serde_json::json!({"profileId":"00000000-0000-0000-0000-000000000000"}),
+            )
+            .await;
+        assert!(missing.get("error").is_some());
+        let restarted = Daemon::new(path.clone()).unwrap();
+        let queried = restarted
+            .dispatch("profile.default", serde_json::json!({}))
+            .await;
+        assert_eq!(queried["id"], id.to_string());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn ui_state_round_trips_and_migrates_from_legacy_state() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let stored = daemon.dispatch("ui.get", serde_json::json!({})).await;
+        assert_eq!(stored, serde_json::json!({}));
+        let result = daemon
+            .dispatch(
+                "ui.set",
+                serde_json::json!({"ui":{"windowWidth":1280,"columns":{"delay":true}}}),
+            )
+            .await;
+        assert_eq!(result["ok"], true);
+        let reloaded = Daemon::new(path.clone()).unwrap();
+        let stored = reloaded.dispatch("ui.get", serde_json::json!({})).await;
+        assert_eq!(stored["windowWidth"], 1280);
+        let invalid = reloaded
+            .dispatch("ui.set", serde_json::json!({"ui":"nope"}))
+            .await;
+        assert!(invalid.get("error").is_some());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn reload_without_connection_is_a_safe_noop() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let result = daemon
+            .dispatch("system.reload", serde_json::json!({}))
+            .await;
+        assert_eq!(result["ok"], true);
+        assert_eq!(result["reloaded"], false);
+        let _ = std::fs::remove_file(path);
     }
 }

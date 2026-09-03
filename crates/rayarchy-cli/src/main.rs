@@ -30,6 +30,25 @@ async fn main() -> anyhow::Result<()> {
                 .dispatch("profile.disconnect", serde_json::json!({}))
                 .await,
         ),
+        "set-default" => {
+            let id = args.next().unwrap_or_default();
+            print_json(
+                daemon
+                    .dispatch("profile.setDefault", serde_json::json!({"profileId":id}))
+                    .await,
+            );
+        }
+        "default" => print_json(
+            daemon
+                .dispatch("profile.default", serde_json::json!({}))
+                .await,
+        ),
+        "reload" => print_json(
+            daemon
+                .dispatch("system.reload", serde_json::json!({}))
+                .await,
+        ),
+        "ui-get" => print_json(daemon.dispatch("ui.get", serde_json::json!({})).await),
         "ip" => print_json(daemon.dispatch("test.ip", serde_json::json!({})).await),
         "history" => print_json(daemon.dispatch("test.history", serde_json::json!({})).await),
         "bulk" => {
@@ -106,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         "help" | "--help" | "-h" => {
-            println!("rayarchy [status|profiles|connect ID|disconnect|ip|history|bulk ID...|bulk-proxy ID...|best [--connect]|diagnostics|validate ID|import URI]")
+            println!("rayarchy [status|profiles|connect ID|disconnect|set-default ID|default|reload|ip|history|bulk ID...|bulk-proxy ID...|best [--connect]|diagnostics|validate ID|import URI|ui-get]")
         }
         command => {
             eprintln!("unknown command: {command}");

@@ -71,6 +71,22 @@ async fn rpc_server_roundtrips_core_workflows() {
     assert_eq!(cancel["result"]["ok"], true);
     let deleted = call(&mut stream, serde_json::json!({"jsonrpc":"2.0","id":9,"method":"profile.delete","params":{"profileId":profile_id}})).await;
     assert_eq!(deleted["result"]["ok"], true);
+    let default_set = call(&mut stream, serde_json::json!({"jsonrpc":"2.0","id":10,"method":"profile.setDefault","params":{"profileId":null}})).await;
+    assert_eq!(default_set["result"]["ok"], true);
+    let ui = call(&mut stream, serde_json::json!({"jsonrpc":"2.0","id":11,"method":"ui.set","params":{"ui":{"tabs":["servers"]}}})).await;
+    assert_eq!(ui["result"]["ok"], true);
+    let ui_get = call(
+        &mut stream,
+        serde_json::json!({"jsonrpc":"2.0","id":12,"method":"ui.get","params":{}}),
+    )
+    .await;
+    assert_eq!(ui_get["result"]["tabs"], serde_json::json!(["servers"]));
+    let reload = call(
+        &mut stream,
+        serde_json::json!({"jsonrpc":"2.0","id":13,"method":"system.reload","params":{}}),
+    )
+    .await;
+    assert_eq!(reload["result"]["reloaded"], false);
     task.abort();
     let _ = tokio::fs::remove_dir_all(root).await;
 }

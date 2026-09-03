@@ -107,6 +107,14 @@ pub struct Settings {
     pub lan_bypass: bool,
     #[serde(default = "default_health_retention_hours")]
     pub health_retention_hours: u32,
+    /// Persisted id of the server connected when the user hits "connect"
+    /// without an explicit selection ("default server" in v2rayN terms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_profile_id: Option<Uuid>,
+    /// Free-form UI state (column widths, window size, layout, filters)
+    /// persisted alongside the rest of the settings.
+    #[serde(default)]
+    pub ui: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +142,8 @@ impl Default for Settings {
             dns_leak_protection: true,
             lan_bypass: true,
             health_retention_hours: 24,
+            default_profile_id: None,
+            ui: Value::Object(Default::default()),
         }
     }
 }
