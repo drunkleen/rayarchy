@@ -82,12 +82,14 @@ Item {
     RowLayout {
       Layout.fillWidth: true
       spacing: Style.space(6)
-      Layout.topMargin: Style.space(4)
+      Layout.topMargin: Style.space(6)
+      Layout.bottomMargin: Style.space(6)
 
       // Group chips
       ScrollView {
-        Layout.preferredWidth: Math.min(root.width * 0.5, 460)
-        Layout.preferredHeight: chipRow.height
+        Layout.preferredWidth: Math.min(root.width * 0.48, 440)
+        Layout.preferredHeight: Style.spacing.controlHeight
+        Layout.maximumWidth: 440
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
         ScrollBar.vertical.policy: ScrollBar.AlwaysOff
@@ -118,6 +120,8 @@ Item {
       Button {
         text: "✎"
         flat: true
+        Layout.preferredWidth: Style.spacing.controlHeight + 2
+        Layout.preferredHeight: Style.spacing.controlHeight
         ToolTip.text: Strings.tr("subEdit")
         ToolTip.visible: hovered
         onClicked: root.app.editSubscription(root.selectedGroup)
@@ -125,6 +129,8 @@ Item {
       Button {
         text: "＋"
         flat: true
+        Layout.preferredWidth: Style.spacing.controlHeight + 2
+        Layout.preferredHeight: Style.spacing.controlHeight
         ToolTip.text: Strings.tr("subAdd")
         ToolTip.visible: hovered
         onClicked: root.app.addSubscription()
@@ -134,7 +140,8 @@ Item {
 
       TextField {
         id: filterField
-        Layout.preferredWidth: 220
+        Layout.preferredWidth: 200
+        Layout.preferredHeight: Style.spacing.controlHeight
         placeholderText: Strings.tr("searchPlaceholder")
         onTextEdited: root.filterText = text
       }
@@ -142,6 +149,8 @@ Item {
       Button {
         text: "⇄"
         flat: true
+        Layout.preferredWidth: Style.spacing.controlHeight + 2
+        Layout.preferredHeight: Style.spacing.controlHeight
         ToolTip.text: Strings.tr("autofit")
         ToolTip.visible: hovered
         onClicked: root.app.autofitColumns()
@@ -149,6 +158,8 @@ Item {
       Button {
         text: "⚡"
         flat: true
+        Layout.preferredWidth: Style.spacing.controlHeight + 2
+        Layout.preferredHeight: Style.spacing.controlHeight
         ToolTip.text: Strings.tr("fastRealPing")
         ToolTip.visible: hovered
         enabled: !root.testing
@@ -157,6 +168,8 @@ Item {
       Button {
         text: "⧖"
         flat: true
+        Layout.preferredWidth: Style.spacing.controlHeight + 2
+        Layout.preferredHeight: Style.spacing.controlHeight
         ToolTip.text: Strings.tr("mixedTest")
         ToolTip.visible: hovered
         enabled: !root.testing

@@ -21,6 +21,11 @@ BarWidget {
 
   readonly property string socketPath: Quickshell.env("XDG_RUNTIME_DIR") + "/rayarchy/rayarchy.sock"
 
+  // Bar widgets are sized by their content: the root must advertise an
+  // implicit size or the slot collapses to 0x0 and nothing renders.
+  implicitWidth: Math.max(shieldButton.implicitWidth + Style.space(4), Style.space(30))
+  implicitHeight: shieldButton.implicitHeight
+
   Component.onCompleted: {
     rpc.setSocketPath(root.socketPath)
     pollTimer.start()
@@ -46,14 +51,15 @@ BarWidget {
   }
 
   WidgetButton {
-    anchors.fill: parent
+    id: shieldButton
     bar: root.bar
     text: "⛨" + (root.profileName !== "" ? " " + root.profileName : "")
-    foreground: root.connected ? Color.accent : (root.connecting ? Color.urgent : Util.alpha(Color.foreground, 0.55))
+    foreground: root.connected ? Color.accent : (root.connecting ? Color.urgent : Util.alpha(Color.foreground, 0.65))
     activeColor: Color.accent
     active: root.connected
     fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
     fontSize: Style.font.body
+    keepSpace: true
     tooltipText: root.connected
       ? root.tooltip + " — click to open"
       : "Rayarchy — click to open"

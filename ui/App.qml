@@ -260,8 +260,15 @@ Item {
         MenuBar {
           id: menuBar
           Layout.fillWidth: true
+          Layout.bottomMargin: 2
           items: root.menuItems
           onItemActivated: function (item) { root.handleMenu(item) }
+        }
+
+        Rectangle {
+          Layout.fillWidth: true
+          Layout.preferredHeight: 1
+          color: Util.alpha(Color.muted, 0.25)
         }
 
         RowLayout {
@@ -486,12 +493,21 @@ Item {
   }
 
   // Right-hand tabs: Msg always; Clash Proxies/Connections while sing-box runs.
-  readonly property var tabModel: [
-    { key: "msg", label: Strings.tr("tabMsg") },
-    { key: "proxies", label: Strings.tr("tabProxies"), visible: root.showClashUI },
-    { key: "connections", label: Strings.tr("tabConnections"), visible: root.showClashUI }
-  ].filter(function (t) { return t.visible !== false })
+  // The model is rebuilt only when the visibility actually changes (a freshly
+  // filtered array on every status poll would churn the TabBar delegates).
+  property bool _lastClashUI: false
+  property var tabModel: [{ key: "msg", label: Strings.tr("tabMsg") }]
   readonly property bool showClashUI: root.status.core === "sing-box"
+  onShowClashUIChanged: root.rebuildTabs()
+  function rebuildTabs() {
+    root._lastClashUI = root.showClashUI
+    var tabs = [{ key: "msg", label: Strings.tr("tabMsg") }]
+    if (root.showClashUI) {
+      tabs.push({ key: "proxies", label: Strings.tr("tabProxies") })
+      tabs.push({ key: "connections", label: Strings.tr("tabConnections") })
+    }
+    root.tabModel = tabs
+  }
 
   // ---- status/action helpers ---------------------------------------------------------
   function notify(message) {
@@ -757,9 +773,22 @@ Item {
 
   // ---- import -------------------------------------------------------------------------
   function importClipboard() {
-    rpc.call("import.clipboard", {}, function (result) {
-      if (result.error) { root.notify("Import: " + result.error); return }
-      if (!result.profiles || result.profiles.length === 0) { root.notify("—"); return }
+    var text = (Quickshell.clipboardText || "").trim()
+    if (text === "") {
+      // Fall back to the daemon's wl-paste (works when the clipboard type is
+      // text but Quickshell hasn't mirrored it).
+      rpc.call("import.clipboard", {}, function (result) {
+        if (result.error) { root.notify(Strings.tr("importFromClipboard") + ": " + result.error); return }
+        if (!result.profiles || result.profiles.length === 0) { root.notify(Strings.tr("importFromClipboard") + ": —"); return }
+        root.confirm(Strings.tr("importFromClipboard") + " (" + result.profiles.length + ")?", function () {
+          root.commitImport(result.input)
+        })
+      })
+      return
+    }
+    rpc.call("import.clipboard.text", { text: text }, function (result) {
+      if (result.error) { root.notify(Strings.tr("importFromClipboard") + ": " + result.error); return }
+      if (!result.profiles || result.profiles.length === 0) { root.notify(Strings.tr("importFromClipboard") + ": —"); return }
       root.confirm(Strings.tr("importFromClipboard") + " (" + result.profiles.length + ")?", function () {
         root.commitImport(result.input)
       })

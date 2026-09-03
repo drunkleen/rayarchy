@@ -17,14 +17,14 @@ Item {
 
   signal itemActivated(var item)
 
-  height: Style.spacing.controlHeight + Style.space(8)
+  height: Style.spacing.controlHeight + Style.space(10)
 
   RowLayout {
     id: menuRow
     anchors.fill: parent
-    anchors.leftMargin: Style.space(6)
-    anchors.rightMargin: Style.space(6)
-    spacing: Style.space(2)
+    anchors.leftMargin: Style.space(8)
+    anchors.rightMargin: Style.space(8)
+    spacing: Style.space(4)
 
     Repeater {
       model: root.items
@@ -103,7 +103,7 @@ Item {
     root.openCallback = function (item) { root.itemActivated(item) }
     root.openDepth = 0
     root.openSubmenu = null
-    menuPanel.updatePosition()
+    root.openSubmenuY = 0
     menuPanel.open = true
     for (var i = 0; i < menuRow.children.length; i++) {
       var b = menuRow.children[i]

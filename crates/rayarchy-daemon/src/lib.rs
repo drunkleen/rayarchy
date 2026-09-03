@@ -1584,6 +1584,16 @@ impl Daemon {
                     Err(error) => serde_json::json!({"profiles":[],"errors":[error]}),
                 }
             }
+            "import.clipboard.text" => {
+                let input = params["text"].as_str().unwrap_or("");
+                if input.trim().is_empty() {
+                    return serde_json::json!({"error":"clipboard does not contain text"});
+                }
+                match rayarchy_core::import::parse_input(input) {
+                    Ok(profiles) => serde_json::json!({"input":input,"profiles":profiles}),
+                    Err(error) => serde_json::json!({"error":error}),
+                }
+            }
             "import.clipboard" => {
                 let output = tokio::process::Command::new("wl-paste")
                     .args(["--no-newline", "--type", "text"])
@@ -3441,6 +3451,25 @@ mod tests {
         assert_eq!(listed[0]["filter"], r"US|DE");
         assert_eq!(listed[0]["convertTarget"], "clash");
         assert_eq!(listed[0]["sort"], 5);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn import_clipboard_text_parses_supplied_content() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let empty = daemon
+            .dispatch("import.clipboard.text", serde_json::json!({"text":""}))
+            .await;
+        assert!(empty.get("error").is_some());
+        let parsed = daemon
+            .dispatch(
+                "import.clipboard.text",
+                serde_json::json!({"text":"vless://id@a.example:443#Clip"}),
+            )
+            .await;
+        assert_eq!(parsed["profiles"][0]["name"], "Clip");
         let _ = std::fs::remove_file(path);
     }
 
