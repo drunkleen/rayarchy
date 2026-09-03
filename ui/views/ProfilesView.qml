@@ -177,6 +177,33 @@ Item {
       }
     }
 
+    // ---- selected-row action bar ----------------------------------------------
+    RowLayout {
+      Layout.fillWidth: true
+      Layout.topMargin: Style.space(2)
+      Layout.bottomMargin: Style.space(4)
+      spacing: Style.space(4)
+
+      Text {
+        text: root.selectionLabel()
+        color: Color.muted
+        font.pixelSize: Style.font.caption
+        Layout.alignment: Qt.AlignVCenter
+        Layout.rightMargin: Style.space(4)
+      }
+
+      RowAction { label: Strings.tr("editServer"); onTriggered: root.singleAction("edit") }
+      RowAction { label: Strings.tr("copyServer"); onTriggered: root.singleAction("copy") }
+      RowAction { label: Strings.tr("removeServer"); onTriggered: root.multiAction("remove") }
+      RowAction { label: Strings.tr("tcping"); onTriggered: root.multiAction("tcping") }
+      RowAction { label: Strings.tr("realPing"); onTriggered: root.multiAction("realping") }
+      RowAction { label: Strings.tr("speedTest"); onTriggered: root.singleAction("speed") }
+      RowAction { label: Strings.tr("udpTest"); onTriggered: root.singleAction("udp") }
+      RowAction { label: Strings.tr("shareServer"); onTriggered: root.singleAction("share") }
+
+      Item { Layout.fillWidth: true }
+    }
+
     // ---- table ----------------------------------------------------------------
     Rectangle {
       Layout.fillWidth: true
@@ -250,6 +277,81 @@ Item {
         if (mouse.button === Qt.RightButton) chip.contextMenuRequested(mouse.x, mouse.y)
         else chip.clicked()
       }
+    }
+  }
+
+  // Compact action button used by the selected-row bar.
+  component RowAction: Item {
+    id: action
+    property string label: ""
+    signal triggered()
+
+    Layout.preferredHeight: Style.spacing.controlHeight - 4
+    implicitWidth: actionLabel.implicitWidth + Style.space(12)
+
+    Rectangle {
+      anchors.fill: parent
+      radius: Style.cornerRadius
+      color: mouse.hovered || mouse.pressed
+        ? Util.alpha(Color.foreground, mouse.pressed ? 0.14 : 0.07)
+        : "transparent"
+    }
+    Text {
+      id: actionLabel
+      anchors.centerIn: parent
+      text: action.label
+      color: Color.foreground
+      font.pixelSize: Style.font.bodySmall
+    }
+    MouseArea {
+      id: mouse
+      anchors.fill: parent
+      hoverEnabled: true
+      onClicked: action.triggered()
+    }
+  }
+
+  function selectionLabel() {
+    var n = table.selectedIds.length
+    if (n === 0) return Strings.tr("selectAll") + " ·"
+    if (n === 1) {
+      var p = root.profileById(table.selectedIds[0])
+      return (p ? p.name : "") + " ·"
+    }
+    return n + " " + Strings.tr("removeServer") + "s ·"
+  }
+
+  function profileById(id) {
+    for (var i = 0; i < root.profiles.length; i++) {
+      if (String(root.profiles[i].id) === String(id)) return root.profiles[i]
+    }
+    return null
+  }
+
+  function singleProfile() {
+    if (table.selectedIds.length !== 1) return null
+    return root.profileById(table.selectedIds[0])
+  }
+
+  function singleAction(kind) {
+    var p = root.singleProfile()
+    if (!p) return
+    switch (kind) {
+      case "edit": root.app.editServer(p); break
+      case "copy": root.app.copyServer(p); break
+      case "speed": root.app.speedTestProfile(p); break
+      case "udp": root.app.udpTestProfile(p); break
+      case "share": root.app.shareServer(p, "raw"); break
+    }
+  }
+
+  function multiAction(kind) {
+    var ids = table.selectedIds
+    if (ids.length === 0) return
+    switch (kind) {
+      case "remove": root.app.removeServers(ids); break
+      case "tcping": root.runBulk(ids, "test.bulk"); break
+      case "realping": root.runBulk(ids, "test.bulk.proxy"); break
     }
   }
 

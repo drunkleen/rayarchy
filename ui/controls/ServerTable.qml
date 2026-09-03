@@ -156,7 +156,7 @@ Rectangle {
       readonly property var rowProfile: modelData
       width: list.width
       height: rowHeight
-      readonly property int rowHeight: Math.max(Style.spacing.controlHeight + 2, 30)
+      readonly property int rowHeight: Math.max(Style.spacing.controlHeight - 2, 24)
 
       Rectangle {
         anchors.fill: parent

@@ -48,6 +48,23 @@ Sheet {
         onClicked: dialog.importBackup()
       }
 
+      RowLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(8)
+        Button {
+          Layout.fillWidth: true
+          Layout.preferredHeight: Style.spacing.controlHeight + 4
+          text: Strings.tr("clearServerStats")
+          onClicked: { dialog.app.clearStatistics(); dialog.closeRequested() }
+        }
+        Button {
+          Layout.fillWidth: true
+          Layout.preferredHeight: Style.spacing.controlHeight + 4
+          text: Strings.tr("openFileLocation")
+          onClicked: { dialog.app.openFileLocation(); dialog.closeRequested() }
+        }
+      }
+
       Text {
         Layout.fillWidth: true
         text: dialog.statusText

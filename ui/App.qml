@@ -257,11 +257,19 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        MenuBar {
-          id: menuBar
+        ToolBar {
+          id: toolBar
           Layout.fillWidth: true
           Layout.bottomMargin: 2
           app: root
+          onAddRequested: root.openAddServer()
+          onPasteRequested: root.importClipboard()
+          onSubsRequested: root.openSubSetting()
+          onRoutingRequested: root.openRoutingSetting()
+          onDnsRequested: root.openDnsSetting()
+          onOptionsRequested: root.openOptionSetting()
+          onUpdateRequested: root.openCheckUpdate()
+          onBackupRequested: root.openBackupRestore()
           onReloadRequested: root.reload()
           onCloseRequested: root.requestClose()
         }
@@ -406,86 +414,6 @@ Item {
     }
   }
 
-  // ---- menu model ----------------------------------------------------------------
-  property var menuItems: [
-    {
-      label: Strings.tr("menuServers"),
-      submenu: [
-        { label: Strings.tr("addViaClipboard"), action: "addClipboard", icon: "⎘" },
-        { label: Strings.tr("addViaImage"), action: "addImage", icon: "🖼" },
-        { separator: true },
-        { label: Strings.tr("addCustom"), action: "addCustom", enabled: false },
-        { label: Strings.tr("addPolicyGroup"), action: "addGroup" },
-        { label: Strings.tr("addProxyChain"), action: "addChain" },
-        { separator: true },
-        { label: Strings.tr("addVmess"), action: "add:vmess" },
-        { label: Strings.tr("addVless"), action: "add:vless" },
-        { label: Strings.tr("addShadowsocks"), action: "add:shadowsocks" },
-        { label: Strings.tr("addTrojan"), action: "add:trojan" },
-        { label: Strings.tr("addHysteria2"), action: "add:hysteria2" },
-        { label: Strings.tr("addWireguard"), action: "add:wireguard" },
-        { label: Strings.tr("addSocks"), action: "add:socks" },
-        { label: Strings.tr("addHttp"), action: "add:http" },
-        { separator: true },
-        { label: Strings.tr("addTuic"), action: "add:tuic" },
-        { label: Strings.tr("addAnytls"), action: "add:anytls" },
-        { label: Strings.tr("addNaive"), action: "add:naive" }
-      ]
-    },
-    {
-      label: Strings.tr("menuSubscription"),
-      submenu: [
-        { label: Strings.tr("subSetting"), action: "subSetting" },
-        { separator: true },
-        { label: Strings.tr("subUpdate"), action: "subUpdateAll" },
-        { label: Strings.tr("subUpdateCurrent"), action: "subUpdateCurrent" }
-      ]
-    },
-    {
-      label: Strings.tr("menuSetting"),
-      submenu: [
-        { label: Strings.tr("optSetting"), action: "optionSetting" },
-        { label: Strings.tr("routingSetting"), action: "routingSetting" },
-        { label: Strings.tr("dnsSetting"), action: "dnsSetting" },
-        { separator: true },
-        { label: Strings.tr("clearServerStats"), action: "clearStats" },
-        { separator: true },
-        { label: Strings.tr("backupRestore"), action: "backupRestore" },
-        { label: Strings.tr("openFileLocation"), action: "openFileLocation" }
-      ]
-    },
-    {
-      label: Strings.tr("menuHelp"),
-      submenu: [
-        { label: Strings.tr("checkUpdate"), action: "checkUpdate" }
-      ]
-    },
-    { label: Strings.tr("menuReload"), action: "reload" },
-    { label: Strings.tr("menuClose"), action: "close" }
-  ]
-
-  function handleMenu(item) {
-    var action = item.action
-    if (!action) return
-    if (action.indexOf("add:") === 0) root.openServerEditor(action.slice(4), null)
-    else if (action === "addClipboard") root.importClipboard()
-    else if (action === "addImage") root.importImage()
-    else if (action === "addGroup") root.openServerEditor("policy-group", null)
-    else if (action === "addChain") root.openServerEditor("proxy-chain", null)
-    else if (action === "subSetting") root.openSubSetting()
-    else if (action === "subUpdateAll") root.updateAllSubscriptions()
-    else if (action === "subUpdateCurrent") root.updateSubscription(root.profilesView.selectedGroup)
-    else if (action === "optionSetting") root.openOptionSetting()
-    else if (action === "routingSetting") root.openRoutingSetting()
-    else if (action === "dnsSetting") root.openDnsSetting()
-    else if (action === "clearStats") root.clearStatistics()
-    else if (action === "backupRestore") root.openBackupRestore()
-    else if (action === "openFileLocation") root.openFileLocation()
-    else if (action === "checkUpdate") root.openCheckUpdate()
-    else if (action === "reload") root.reload()
-    else if (action === "close") root.requestClose()
-  }
-
   function openCheckUpdate() {
     sheetHost.open(Qt.createComponent("dialogs/CheckUpdate.qml"), {
       rpc: rpc, app: root, title: Strings.tr("checkUpdateTitle")
@@ -574,6 +502,12 @@ Item {
     sheetHost.open(Qt.createComponent("dialogs/ServerEdit.qml"), {
       rpc: rpc, app: root, protocol: protocol, profile: profile,
       title: Strings.tr("serverEditTitle")
+    })
+  }
+
+  function openAddServer() {
+    sheetHost.open(Qt.createComponent("dialogs/AddServer.qml"), {
+      rpc: rpc, app: root, title: Strings.tr("serverEditTitle")
     })
   }
 
