@@ -102,6 +102,28 @@ pub struct Subscription {
 fn default_true() -> bool {
     true
 }
+impl Default for Subscription {
+    fn default() -> Self {
+        Self {
+            id: id(),
+            name: String::new(),
+            url: String::new(),
+            enabled: true,
+            auto_update: AutoUpdate::default(),
+            last_error: None,
+            last_refresh_at: None,
+            more_url: None,
+            filter: None,
+            convert_target: None,
+            user_agent: None,
+            sort: None,
+            prev_profile_id: None,
+            next_profile_id: None,
+            custom_core: None,
+            memo: None,
+        }
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AutoUpdate {
