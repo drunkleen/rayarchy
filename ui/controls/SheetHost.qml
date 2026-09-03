@@ -22,6 +22,14 @@ Item {
   function open(component, props) {
     var sheet = component.createObject(root, props || {})
     if (!sheet) return null
+    // Maximized sheets fill the host (used to make editors read as pages in
+    // the compact panel). Assigning width/height directly wins over the
+    // component's own sizing binding.
+    if (props && props.maximized) {
+      sheet.maximized = true
+      sheet.width = root.width
+      sheet.height = root.height
+    }
     sheet.visible = true
     sheet.z = root.stack.length + 1
     root.stack.push(sheet)

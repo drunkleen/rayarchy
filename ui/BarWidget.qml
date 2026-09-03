@@ -3,69 +3,89 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import qs.Ui
 import qs.Commons
 
-// Topbar widget: proxy status indicator. Clicking it summons the Rayarchy
-// panel window through the shell's toggle IPC (same path as a keybind or
-// launcher entry). The widget polls the daemon status over the same socket
-// the panel uses.
-BarWidget {
+// Topbar widget + compact popup panel. Left-click toggles the popup; the
+// icon reflects connection state (accent when connected, shows the profile
+// name). The popup is a KeyboardPanel anchored to the icon hosting App.qml.
+Panel {
   id: root
   moduleName: "com.drunkleen.rayarchy"
 
+  // The App tells us to swallow close requests while a form/sheet is open so
+  // a stray outside click cannot wipe unsaved input.
+  property bool suppressClose: false
+
   property bool connected: false
-  property bool connecting: false
   property string profileName: ""
-  property string tooltip: ""
+  property string appVersion: ""
 
   readonly property string socketPath: Quickshell.env("XDG_RUNTIME_DIR") + "/rayarchy/rayarchy.sock"
 
-  // Bar widgets are sized by their content: the root must advertise an
-  // implicit size or the slot collapses to 0x0 and nothing renders.
-  implicitWidth: Math.max(shieldButton.implicitWidth + Style.space(4), Style.space(30))
-  implicitHeight: shieldButton.implicitHeight
-
-  Component.onCompleted: {
-    rpc.setSocketPath(root.socketPath)
-    pollTimer.start()
-  }
+  implicitWidth: button.implicitWidth + Style.space(4)
+  implicitHeight: button.implicitHeight
 
   Rpc {
     id: rpc
   }
 
   Timer {
-    id: pollTimer
     interval: 3000
     repeat: true
+    running: true
     onTriggered: {
       if (!rpc.ready) { rpc.setSocketPath(root.socketPath); return }
       rpc.call("system.status", {}, function (status) {
         root.connected = status.connected === true
-        root.connecting = status.connecting === true
         root.profileName = status.profileName || ""
-        root.tooltip = "Rayarchy v" + (status.version || "?")
-          + (status.localPort ? " · [mixed:" + status.localPort + "]" : "")
-          + (root.profileName ? " · " + root.profileName : "")
+        if (status.version) root.appVersion = status.version
       })
     }
   }
 
-  WidgetButton {
-    id: shieldButton
+  Component.onCompleted: rpc.setSocketPath(root.socketPath)
+
+  // Override Panel.close() so outside-click / Escape / shell.hide respect
+  // suppressClose while a sheet is open in the panel.
+  function close() {
+    if (root.suppressClose) return
+    root.controller.hide()
+  }
+
+  BarIconButton {
+    id: button
+    anchors.fill: parent
     bar: root.bar
-    text: "⛨" + (root.profileName !== "" ? " " + root.profileName : "")
-    foreground: root.connected ? Color.accent : (root.connecting ? Color.urgent : Util.alpha(Color.foreground, 0.65))
-    activeColor: Color.accent
+    text: "⛨"
+    foreground: root.connected ? Color.accent : Util.alpha(Color.foreground, 0.65)
     active: root.connected
-    fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
-    fontSize: Style.font.body
-    keepSpace: true
-    tooltipText: root.tooltip + " — click to open"
-    onPressed: function () {
-      if (root.bar) root.bar.run("omarchy-shell shell toggle com.drunkleen.rayarchy '{}'")
-      else Quickshell.execDetached("omarchy-shell shell toggle com.drunkleen.rayarchy '{}'")
+    tooltipText: root.connected
+      ? "Rayarchy — " + root.profileName
+      : (root.profileName !== "" ? "Rayarchy — " + root.profileName : "Rayarchy — disconnected")
+    onPressed: function (b) {
+      if (b === Qt.LeftButton) root.toggle()
+    }
+  }
+
+  KeyboardPanel {
+    id: panel
+    anchorItem: button
+    owner: root
+    bar: root.bar
+    open: root.opened
+    contentWidth: panel.fittedContentWidth(Style.space(500))
+    contentHeight: panel.fittedContentHeight(Style.space(800))
+    focusTarget: appLoader.item
+
+    Loader {
+      id: appLoader
+      anchors.fill: parent
+      source: "App.qml"
+      onLoaded: {
+        item.panelOwner = root
+      }
     }
   }
 }

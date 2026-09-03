@@ -7,18 +7,16 @@
   "description": "v2rayN-style proxy management for Omarchy: Rust backend plus an Omarchy shell UI",
   "kinds": [
     "backend",
-    "panel",
     "bar-widget"
   ],
   "activation": "on-demand",
   "keepLoaded": true,
   "entryPoints": {
-    "panel": "ui/App.qml",
     "barWidget": "ui/BarWidget.qml"
   },
   "barWidget": {
     "displayName": "Rayarchy proxy",
-    "description": "Proxy status indicator; click opens the Rayarchy window",
+    "description": "Proxy status indicator; click opens the Rayarchy panel",
     "category": "Network",
     "allowMultiple": false,
     "defaultSection": "right"

@@ -4,24 +4,24 @@ import QtQuick.Layouts
 import qs.Commons
 import "../controls/Common.js" as Common
 import "../strings.js" as Strings
-import "../controls"
-import "../dialogs"
 
-// The v2rayN server dashboard: subscription group chips, filter, toolbar
-// test buttons, and the server table with its full context menu.
+// Compact server list: searchable rows with a subscription group filter.
+// Left-click selects, double-click connects, right-click opens the full
+// v2rayN-style context menu.
 Item {
   id: root
 
   property var app: null
   property var rpc: null
   property var status: ({})
+
   property var subscriptions: []
   property var profiles: []
   property string selectedGroup: ""
   property string filterText: ""
   property bool testing: false
-
-  property var columns: app ? app.uiState.columns : []
+  property var selectedIds: []
+  property string lastMoveGroup: ""
 
   function refresh() {
     if (!root.rpc || !root.rpc.ready) return
@@ -48,112 +48,71 @@ Item {
       row.connected = connectedId !== null && String(p.id) === String(connectedId)
       if (p.lastTest) {
         row.ipInfo = p.lastTest.ipInfo || ""
-        row.todayUp = p.lastTest.todayUp
       }
       enriched.push(row)
     }
     root.profiles = enriched
+    // prune selection of rows no longer present
+    var pruned = []
+    for (var k = 0; k < root.selectedIds.length; k++) {
+      for (var m = 0; m < enriched.length; m++) {
+        if (String(enriched[m].id) === String(root.selectedIds[k])) { pruned.push(root.selectedIds[k]); break }
+      }
+    }
+    root.selectedIds = pruned
   }
 
   onStatusChanged: root.refresh()
   onFilterTextChanged: refreshTimer.restart()
 
-  Timer {
-    id: refreshTimer
-    interval: 500
-    onTriggered: root.refresh()
-  }
-
+  Timer { id: refreshTimer; interval: 400; onTriggered: root.refresh() }
   Timer {
     id: pollTimer
     interval: 5000
     repeat: true
     running: true
-    onTriggered: {
-      if (!root.testing) root.refresh()
-    }
+    onTriggered: { if (!root.testing) root.refresh() }
   }
 
-  // ---- toolbar --------------------------------------------------------------
   ColumnLayout {
     anchors.fill: parent
     spacing: 0
 
+    // ---- header toolbar ----
     RowLayout {
       Layout.fillWidth: true
       spacing: Style.space(6)
-      Layout.topMargin: Style.space(6)
+      Layout.topMargin: Style.space(8)
+      Layout.leftMargin: Style.space(8)
+      Layout.rightMargin: Style.space(8)
       Layout.bottomMargin: Style.space(6)
 
-      // Group chips
-      ScrollView {
-        Layout.preferredWidth: Math.min(root.width * 0.48, 440)
-        Layout.preferredHeight: Style.spacing.controlHeight
-        Layout.maximumWidth: 440
-        clip: true
-        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-        ScrollBar.vertical.policy: ScrollBar.AlwaysOff
-
-        RowLayout {
-          id: chipRow
-          spacing: Style.space(4)
-          GroupChip {
-            label: Strings.tr("group")
-            selected: root.selectedGroup === ""
-            onClicked: { root.selectedGroup = ""; root.refresh() }
-          }
-          Repeater {
-            model: root.subscriptions
-            delegate: GroupChip {
-              required property var modelData
-              label: modelData.name
-              selected: root.selectedGroup === modelData.id
-              onClicked: { root.selectedGroup = modelData.id; root.refresh() }
-              onContextMenuRequested: function (x, y) {
-                root.subChipMenu(modelData, x, y)
-              }
-            }
-          }
-        }
-      }
-
-      Button {
-        text: "✎"
-        flat: true
-        Layout.preferredWidth: Style.spacing.controlHeight + 2
-        Layout.preferredHeight: Style.spacing.controlHeight
-        ToolTip.text: Strings.tr("subEdit")
-        ToolTip.visible: hovered
-        onClicked: root.app.editSubscription(root.selectedGroup)
-      }
       Button {
         text: "＋"
         flat: true
         Layout.preferredWidth: Style.spacing.controlHeight + 2
         Layout.preferredHeight: Style.spacing.controlHeight
-        ToolTip.text: Strings.tr("subAdd")
+        ToolTip.text: Strings.tr("serverEditTitle")
         ToolTip.visible: hovered
-        onClicked: root.app.addSubscription()
+        onClicked: root.app.openAddServer()
       }
-
-      Item { Layout.fillWidth: true }
-
-      TextField {
-        id: filterField
-        Layout.preferredWidth: 200
-        Layout.preferredHeight: Style.spacing.controlHeight
-        placeholderText: Strings.tr("searchPlaceholder")
-        onTextEdited: root.filterText = text
-      }
-
       Button {
-        text: "⇄"
+        text: "⧉"
         flat: true
         Layout.preferredWidth: Style.spacing.controlHeight + 2
         Layout.preferredHeight: Style.spacing.controlHeight
-        ToolTip.text: Strings.tr("autofit")
+        ToolTip.text: Strings.tr("importFromClipboard")
         ToolTip.visible: hovered
-        onClicked: root.app.autofitColumns()
+        onClicked: root.app.importClipboard()
+      }
+      Button {
+        text: "🖼"
+        flat: true
+        Layout.preferredWidth: Style.spacing.controlHeight + 2
+        Layout.preferredHeight: Style.spacing.controlHeight
+        ToolTip.text: Strings.tr("importFromImage")
+        ToolTip.visible: hovered
+        onClicked: root.app.importImage()
       }
       Button {
         text: "⚡"
@@ -175,55 +134,81 @@ Item {
         enabled: !root.testing
         onClicked: root.mixedTest()
       }
-    }
-
-    // ---- selected-row action bar ----------------------------------------------
-    RowLayout {
-      Layout.fillWidth: true
-      Layout.topMargin: Style.space(2)
-      Layout.bottomMargin: Style.space(4)
-      spacing: Style.space(4)
-
-      Text {
-        text: root.selectionLabel()
-        color: Color.muted
-        font.pixelSize: Style.font.caption
-        Layout.alignment: Qt.AlignVCenter
-        Layout.rightMargin: Style.space(4)
-      }
-
-      RowAction { label: Strings.tr("editServer"); onTriggered: root.singleAction("edit") }
-      RowAction { label: Strings.tr("copyServer"); onTriggered: root.singleAction("copy") }
-      RowAction { label: Strings.tr("removeServer"); onTriggered: root.multiAction("remove") }
-      RowAction { label: Strings.tr("tcping"); onTriggered: root.multiAction("tcping") }
-      RowAction { label: Strings.tr("realPing"); onTriggered: root.multiAction("realping") }
-      RowAction { label: Strings.tr("speedTest"); onTriggered: root.singleAction("speed") }
-      RowAction { label: Strings.tr("udpTest"); onTriggered: root.singleAction("udp") }
-      RowAction { label: Strings.tr("shareServer"); onTriggered: root.singleAction("share") }
 
       Item { Layout.fillWidth: true }
+
+      TextField {
+        id: filterField
+        Layout.preferredWidth: 150
+        Layout.preferredHeight: Style.spacing.controlHeight
+        placeholderText: Strings.tr("searchPlaceholder")
+        onTextEdited: root.filterText = text
+      }
     }
 
-    // ---- table ----------------------------------------------------------------
+    // ---- group chips ----
+    ScrollView {
+      Layout.fillWidth: true
+      Layout.preferredHeight: Style.spacing.controlHeight + Style.space(4)
+      Layout.leftMargin: Style.space(8)
+      Layout.rightMargin: Style.space(8)
+      clip: true
+      ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+      ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+
+      RowLayout {
+        spacing: Style.space(4)
+        GroupChip {
+          label: Strings.tr("group")
+          selected: root.selectedGroup === ""
+          onClicked: { root.selectedGroup = ""; root.refresh() }
+        }
+        Repeater {
+          model: root.subscriptions
+          delegate: GroupChip {
+            required property var modelData
+            label: modelData.name
+            selected: root.selectedGroup === modelData.id
+            onClicked: { root.selectedGroup = modelData.id; root.refresh() }
+            onContextMenuRequested: function (x, y) {
+              root.subChipMenu(modelData, x, y)
+            }
+          }
+        }
+      }
+    }
+
+    Rectangle {
+      Layout.fillWidth: true
+      Layout.preferredHeight: 1
+      color: Util.alpha(Color.muted, 0.25)
+    }
+
+    // ---- list ----
     Rectangle {
       Layout.fillWidth: true
       Layout.fillHeight: true
       color: "transparent"
 
-      ServerTable {
-        id: table
+      ListView {
+        id: listView
         anchors.fill: parent
+        anchors.margins: Style.space(4)
+        clip: true
         model: root.profiles
-        columns: root.columns
-        onRowActivated: function (profile) { root.app.activateProfile(profile) }
-        onRowContextMenu: function (profile, x, y) {
-          var pos = table.mapToItem(root.app.windowContent, x, y)
-          root.rowMenu(profile, pos.x, pos.y)
-        }
-        onSelectionChanged: function (ids) { root.app.selection = ids }
-        onHeaderClicked: function (column, index) { root.sortByColumn(column) }
-        onColumnWidthChanged: function (index, width) {
-          root.app.onColumnWidthChanged(index, width)
+        spacing: 2
+        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        delegate: ServerRow {
+          required property var modelData
+          profile: modelData
+          selected: root.selectedIds.indexOf(String(modelData.id)) !== -1
+          connected: modelData.connected === true
+          onClicked: root.toggleSelect(String(modelData.id))
+          onDoubleClicked: root.app.activateProfile(modelData)
+          onContextMenuRequested: function (x, y) {
+            var pos = serverRowMouse.mapToItem(root.app.contentArea, x, y)
+            root.rowMenu(modelData, pos.x, pos.y)
+          }
         }
       }
 
@@ -237,6 +222,139 @@ Item {
           color: Color.muted
           font.pixelSize: Style.font.body
         }
+      }
+    }
+
+    // ---- selection action bar ----
+    Rectangle {
+      Layout.fillWidth: true
+      Layout.preferredHeight: root.selectedIds.length > 0 ? Style.spacing.controlHeight : 0
+      color: Util.alpha(Color.foreground, 0.05)
+      visible: root.selectedIds.length > 0
+
+      RowLayout {
+        anchors.fill: parent
+        anchors.leftMargin: Style.space(8)
+        anchors.rightMargin: Style.space(8)
+        spacing: Style.space(4)
+        Text {
+          text: root.selectedIds.length + " ·"
+          color: Color.muted
+          font.pixelSize: Style.font.caption
+        }
+        ActionChip { label: Strings.tr("editServer"); onClicked: root.singleAction("edit") }
+        ActionChip { label: Strings.tr("copyServer"); onClicked: root.singleAction("copy") }
+        ActionChip { label: Strings.tr("removeServer"); onClicked: root.multiAction("remove") }
+        ActionChip { label: Strings.tr("tcping"); onClicked: root.multiAction("tcping") }
+        ActionChip { label: Strings.tr("speedTest"); onClicked: root.singleAction("speed") }
+        ActionChip { label: Strings.tr("udpTest"); onClicked: root.singleAction("udp") }
+        ActionChip { label: Strings.tr("shareServer"); onClicked: root.singleAction("share") }
+        Item { Layout.fillWidth: true }
+      }
+    }
+  }
+
+  // ---- row component ----
+  component ServerRow: Item {
+    id: row
+    property var profile: ({})
+    property bool selected: false
+    property bool connected: false
+    signal clicked()
+    signal doubleClicked()
+    signal contextMenuRequested(real x, real y)
+
+    implicitHeight: Style.space(46)
+    width: parent ? parent.width : 0
+
+    Rectangle {
+      anchors.fill: parent
+      radius: Style.cornerRadius
+      color: row.connected
+        ? Util.alpha(Color.accent, 0.16)
+        : (row.selected ? Util.alpha(Color.foreground, 0.10) : (mouse.hovered ? Util.alpha(Color.foreground, 0.05) : "transparent"))
+      border.color: row.connected ? Color.accent : (row.selected ? Util.alpha(Color.foreground, 0.4) : "transparent")
+      border.width: 1
+    }
+
+    RowLayout {
+      anchors.fill: parent
+      anchors.leftMargin: Style.space(8)
+      anchors.rightMargin: Style.space(8)
+      spacing: Style.space(8)
+
+      Rectangle {
+        Layout.preferredWidth: 8
+        Layout.preferredHeight: 8
+        radius: 4
+        color: Common.protocolColor(row.profile.protocol)
+      }
+
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: 0
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(6)
+          Text {
+            text: row.profile.name || ""
+            color: Color.foreground
+            font.pixelSize: Style.font.bodySmall
+            font.bold: row.connected
+            elide: Text.ElideRight
+            Layout.fillWidth: true
+          }
+          Text {
+            text: Common.protocolLabel(row.profile.protocol)
+            color: Color.muted
+            font.pixelSize: Style.font.caption
+          }
+          Text {
+            visible: row.profile.favorite
+            text: "★"
+            color: Color.accent
+            font.pixelSize: Style.font.caption
+          }
+        }
+        Text {
+          text: {
+            var s = row.profile.server || ""
+            if (row.profile.port) s += ":" + row.profile.port
+            if (row.profile.subRemarks) s += "  ·  " + row.profile.subRemarks
+            return s
+          }
+          color: Color.muted
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+          Layout.fillWidth: true
+        }
+      }
+
+      Text {
+        text: row.profile.lastTest && row.profile.lastTest.ok
+          ? row.profile.lastTest.latencyMs + " ms"
+          : (row.profile.lastTest ? "✗" : "")
+        color: row.profile.lastTest && row.profile.lastTest.ok ? Color.accent : Color.urgent
+        font.pixelSize: Style.font.caption
+      }
+      Text {
+        text: row.connected ? "●" : ""
+        color: Color.accent
+        font.pixelSize: Style.font.bodySmall
+      }
+    }
+
+    MouseArea {
+      id: serverRowMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      acceptedButtons: Qt.LeftButton | Qt.RightButton
+      onClicked: function (mouse) {
+        if (mouse.button === Qt.RightButton) row.contextMenuRequested(mouse.x, mouse.y)
+        else row.clicked()
+      }
+      onDoubleClicked: function (mouse) {
+        if (mouse.button === Qt.LeftButton) row.doubleClicked()
       }
     }
   }
@@ -280,13 +398,11 @@ Item {
     }
   }
 
-  // Compact action button used by the selected-row bar.
-  component RowAction: Item {
+  component ActionChip: Item {
     id: action
     property string label: ""
-    signal triggered()
-
-    Layout.preferredHeight: Style.spacing.controlHeight - 4
+    signal clicked()
+    Layout.preferredHeight: Style.spacing.controlHeight - 6
     implicitWidth: actionLabel.implicitWidth + Style.space(12)
 
     Rectangle {
@@ -307,18 +423,19 @@ Item {
       id: mouse
       anchors.fill: parent
       hoverEnabled: true
-      onClicked: action.triggered()
+      onClicked: action.clicked()
     }
   }
 
-  function selectionLabel() {
-    var n = table.selectedIds.length
-    if (n === 0) return Strings.tr("selectAll") + " ·"
-    if (n === 1) {
-      var p = root.profileById(table.selectedIds[0])
-      return (p ? p.name : "") + " ·"
+  // ---- selection + actions --------------------------------------------------
+  function toggleSelect(id) {
+    var idx = root.selectedIds.indexOf(String(id))
+    if (idx === -1) root.selectedIds = root.selectedIds.concat([String(id)])
+    else {
+      var arr = root.selectedIds.slice()
+      arr.splice(idx, 1)
+      root.selectedIds = arr
     }
-    return n + " " + Strings.tr("removeServer") + "s ·"
   }
 
   function profileById(id) {
@@ -329,8 +446,8 @@ Item {
   }
 
   function singleProfile() {
-    if (table.selectedIds.length !== 1) return null
-    return root.profileById(table.selectedIds[0])
+    if (root.selectedIds.length !== 1) return null
+    return root.profileById(root.selectedIds[0])
   }
 
   function singleAction(kind) {
@@ -346,36 +463,13 @@ Item {
   }
 
   function multiAction(kind) {
-    var ids = table.selectedIds
+    var ids = root.selectedIds
     if (ids.length === 0) return
     switch (kind) {
       case "remove": root.app.removeServers(ids); break
       case "tcping": root.runBulk(ids, "test.bulk"); break
       case "realping": root.runBulk(ids, "test.bulk.proxy"); break
     }
-  }
-
-  function subChipMenu(sub, x, y) {
-    var items = [
-      { label: Strings.tr("subRefresh"), action: "refresh", enabled: sub.enabled },
-      { label: Strings.tr("subEdit"), action: "edit" },
-      { label: Strings.tr("subDelete"), action: "delete", enabled: true }
-    ]
-    root.app.contextMenu(items, x, y, function (item) {
-      switch (item.action) {
-        case "refresh": root.app.refreshSubscription(sub.id); break
-        case "edit": root.app.editSubscription(sub.id); break
-        case "delete": root.app.deleteSubscription(sub.id); break
-      }
-    })
-  }
-
-  function selectedProfiles() {
-    var out = []
-    for (var i = 0; i < root.profiles.length; i++) {
-      if (table.isSelected(root.profiles[i].id)) out.push(root.profiles[i])
-    }
-    return out
   }
 
   function fastRealPing() {
@@ -388,9 +482,11 @@ Item {
   }
 
   function mixedTest() {
-    var sel = root.selectedProfiles()
-    if (sel.length === 0) return
-    var ids = sel.map(function (p) { return p.id })
+    var ids = root.selectedIds
+    if (ids.length === 0) {
+      for (var i = 0; i < root.profiles.length; i++) ids.push(root.profiles[i].id)
+    }
+    if (ids.length === 0) return
     root.runBulk(ids, "test.bulk.proxy")
   }
 
@@ -408,31 +504,26 @@ Item {
     })
   }
 
-  function sortByColumn(column) {
-    if (column.key === "configType") {
-      root.profiles.sort(function (a, b) { return a.protocol.localeCompare(b.protocol) })
-    } else if (column.key === "delay") {
-      root.profiles.sort(function (a, b) {
-        var ad = a.lastTest ? a.lastTest.latencyMs : 999999
-        var bd = b.lastTest ? b.lastTest.latencyMs : 999999
-        return ad - bd
-      })
-    } else if (column.key === "speed") {
-      root.profiles.sort(function (a, b) {
-        var as = a.lastTest ? (a.lastTest.megabitsPerSecond || 0) : -1
-        var bs = b.lastTest ? (b.lastTest.megabitsPerSecond || 0) : -1
-        return bs - as
-      })
-    }
-    root.profiles = root.profiles.slice()
+  function subChipMenu(sub, x, y) {
+    var items = [
+      { label: Strings.tr("subRefresh"), action: "refresh", enabled: sub.enabled },
+      { label: Strings.tr("subEdit"), action: "edit" },
+      { label: Strings.tr("subDelete"), action: "delete", enabled: true }
+    ]
+    root.app.contextMenu(items, x, y, function (item) {
+      switch (item.action) {
+        case "refresh": root.app.refreshSubscription(sub.id); break
+        case "edit": root.app.editSubscription(sub.id); break
+        case "delete": root.app.deleteSubscription(sub.id); break
+      }
+    })
   }
 
-  // ---- context menu -----------------------------------------------------------
   function rowMenu(profile, x, y) {
-    var ids = table.selectedIds
+    var ids = root.selectedIds
+    if (ids.indexOf(String(profile.id)) === -1) ids = [String(profile.id)]
     var single = profile
     var isGroup = profile.protocol === "policy-group" || profile.protocol === "proxy-chain"
-    var isComplex = profile.protocol === "custom" || isGroup
 
     var items = [
       { label: Strings.tr("setDefaultServer"), action: "default", checked: !!profile.default },
@@ -446,7 +537,6 @@ Item {
       { label: Strings.tr("realPing"), action: "realping" },
       { label: Strings.tr("udpTest"), action: "udp", enabled: ids.length === 1 },
       { label: Strings.tr("speedTest"), action: "speed", enabled: ids.length === 1 },
-      { label: Strings.tr("sortByDelay"), action: "sortByDelay", enabled: ids.length === 1 },
       { separator: true },
       { label: Strings.tr("moveToGroup"), action: "moveGroup", submenu: root.moveGroupMenu() },
       { label: Strings.tr("moveTop"), action: "top", enabled: ids.length === 1 },
@@ -487,53 +577,38 @@ Item {
       case "realping": root.runBulk(ids, "test.bulk.proxy"); break
       case "udp": root.app.udpTestProfile(profile); break
       case "speed": root.app.speedTestProfile(profile); break
-      case "sortByDelay": root.sortByColumn({ key: "delay" }); break
       case "top": case "up": case "down": case "bottom":
         root.app.moveSelected(ids, item.action); break
-      case "selectAll": table.selectAll(); break
+      case "selectAll":
+        var all = []
+        for (var i = 0; i < root.profiles.length; i++) all.push(String(root.profiles[i].id))
+        root.selectedIds = all
+        break
       case "share": root.app.shareServer(profile, "raw"); break
       case "exportShare": root.app.shareServer(profile, "url"); break
       case "exportBase64": root.app.shareServer(profile, "base64"); break
       case "exportInner": root.app.shareServer(profile, "inner"); break
       default:
         if (String(item.action).indexOf("group:") === 0) {
-          root.moveToGroup(String(item.action).slice(6))
+          var target = String(item.action).slice(6)
+          root.app.moveToGroup(ids, target)
         }
         break
     }
   }
 
-  property string lastMoveGroup: ""
-
-  function moveToGroup(target) {
-    var ids = table.selectedIds
-    root.lastMoveGroup = target
-    root.app.moveToGroup(ids, target)
-  }
-
-  // Keyboard shortcuts: Ctrl+C export, Enter set default + connect behavior,
-  // Delete remove, Ctrl+A select all, Ctrl+D edit, Ctrl+F share, etc.
   Keys.onPressed: function (event) {
-    if (root.app && root.app.sheetHostOpen()) { event.accepted = false; return }
     var ctrl = event.modifiers & Qt.ControlModifier
-    var key = event.key
-    var sel = table.selectedIds
-    var single = root.profiles[table.lastSelectedIndex]
-    if (ctrl && key === Qt.Key_A) { table.selectAll(); event.accepted = true; return }
-    if (ctrl && key === Qt.Key_C) { if (sel.length === 1 && single) { root.app.shareServer(single, "raw") } event.accepted = true; return }
-    if (ctrl && key === Qt.Key_D) { if (sel.length === 1 && single) { root.app.editServer(single) } event.accepted = true; return }
-    if (ctrl && key === Qt.Key_F) { if (sel.length === 1 && single) { root.app.shareServer(single, "url") } event.accepted = true; return }
-    if (key === Qt.Key_Return) {
-      if (sel.length === 1 && single) { root.app.activateProfile(single) } else if (single) { root.app.activateProfile(single) }
+    if (event.key === Qt.Key_Escape) { root.app.contextMenuHide(); event.accepted = true; return }
+    if (root.selectedIds.length === 1) {
+      var p = root.singleProfile()
+      if (ctrl && event.key === Qt.Key_C) { if (p) root.app.shareServer(p, "raw"); event.accepted = true; return }
+      if (ctrl && event.key === Qt.Key_D) { if (p) root.app.editServer(p); event.accepted = true; return }
+      if (event.key === Qt.Key_Return) { if (p) root.app.activateProfile(p); event.accepted = true; return }
+    }
+    if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) {
+      if (root.selectedIds.length > 0) root.app.removeServers(root.selectedIds)
       event.accepted = true; return
     }
-    if (key === Qt.Key_Delete || key === Qt.Key_Backspace) {
-      if (sel.length > 0) { root.app.removeServers(sel) }
-      event.accepted = true; return
-    }
-    if (ctrl && key === Qt.Key_O) { if (sel.length > 0) root.runBulk(sel, "test.bulk"); event.accepted = true; return }
-    if (ctrl && key === Qt.Key_R) { if (sel.length > 0) root.runBulk(sel, "test.bulk.proxy"); event.accepted = true; return }
-    if (ctrl && key === Qt.Key_T) { if (sel.length === 1 && single) root.app.speedTestProfile(single); event.accepted = true; return }
-    if (key === Qt.Key_Escape) { root.app.contextMenuHide(); event.accepted = true; return }
   }
 }
