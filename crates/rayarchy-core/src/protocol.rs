@@ -17,6 +17,8 @@ pub enum Protocol {
     Custom,
     PolicyGroup,
     ProxyChain,
+    /// A single sing-box outbound endpoint (v2rayN "custom outbound").
+    Outbound,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

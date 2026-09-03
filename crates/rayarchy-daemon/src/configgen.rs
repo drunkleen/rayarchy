@@ -16,6 +16,7 @@ pub fn choose_core(profile: &Profile, preferred: Core) -> Core {
             | Protocol::Anytls
             | Protocol::Naive
             | Protocol::Custom
+            | Protocol::Outbound
             | Protocol::PolicyGroup
             | Protocol::ProxyChain
     ) {
@@ -32,6 +33,20 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
             .as_deref()
             .and_then(|raw| serde_json::from_str(raw).ok())
             .unwrap_or_else(|| serde_json::json!({}));
+    }
+    if profile.protocol == Protocol::Outbound {
+        let mut outbound = profile
+            .raw
+            .as_deref()
+            .and_then(|raw| serde_json::from_str(raw).ok())
+            .unwrap_or_else(|| serde_json::json!({"type":"direct"}));
+        outbound["tag"] = serde_json::json!("proxy");
+        return serde_json::json!({
+            "log": {"level":"info"},
+            "inbounds": [{"type":"mixed","tag":"rayarchy-in","listen":host,"listen_port":port}],
+            "outbounds": [outbound, {"type":"direct","tag":"direct"}, {"type":"block","tag":"block"}],
+            "route": {"final":"proxy","rules":[]}
+        });
     }
     let server = profile.server.clone().unwrap_or_default();
     let server_port = profile.port.unwrap_or_default();
@@ -64,7 +79,10 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                 Protocol::Wireguard => "wireguard",
                 Protocol::Anytls => "anytls",
                 Protocol::Naive => "naive",
-                Protocol::Custom | Protocol::PolicyGroup | Protocol::ProxyChain => "direct",
+                Protocol::Custom
+                | Protocol::Outbound
+                | Protocol::PolicyGroup
+                | Protocol::ProxyChain => "direct",
             };
             if profile.protocol == Protocol::Wireguard {
                 return serde_json::json!({"log":{"level":"info"},"inbounds":[{"type":"mixed","tag":"rayarchy-in","listen":host,"listen_port":port}],"outbounds":[{"type":"wireguard","tag":"proxy","server":server,"server_port":server_port,"local_address":[field("local_address")],"private_key":field("private_key"),"peers":[{"public_key":field("public_key"),"allowed_ips":["0.0.0.0/0","::/0"]}]},{"type":"direct","tag":"direct"},{"type":"block","tag":"block"}],"route":{"rules":[]}});
@@ -121,6 +139,7 @@ pub fn build(profile: &Profile, core: Core, host: &str, port: u16) -> serde_json
                 Protocol::Socks => "socks",
                 Protocol::Http => "http",
                 Protocol::Custom
+                | Protocol::Outbound
                 | Protocol::PolicyGroup
                 | Protocol::ProxyChain
                 | Protocol::Hysteria2

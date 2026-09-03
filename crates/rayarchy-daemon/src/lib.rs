@@ -65,6 +65,23 @@ fn validate_profile(profile: &Profile) -> Result<(), String> {
             .map_err(|_| "custom profile configuration must be valid JSON".to_string())?;
         return Ok(());
     }
+    if profile.protocol == Protocol::Outbound {
+        let raw = profile.raw.as_deref().unwrap_or("").trim();
+        if raw.is_empty() {
+            return Err("outbound profile requires a sing-box outbound configuration".into());
+        }
+        let value: serde_json::Value = serde_json::from_str(raw)
+            .map_err(|_| "outbound profile configuration must be valid JSON".to_string())?;
+        if value
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .is_empty()
+        {
+            return Err("outbound profile configuration must include a type".into());
+        }
+        return Ok(());
+    }
     if profile.server.as_deref().unwrap_or("").trim().is_empty() {
         return Err("profile server is required".into());
     }
@@ -1040,6 +1057,7 @@ impl Daemon {
                     "policy-group" => &["members", "strategy"],
                     "proxy-chain" => &["members"],
                     "custom" => &["raw"],
+                    "outbound" => &["raw"],
                     "socks" | "http" => &["user", "password"],
                     _ => &[],
                 };
@@ -1059,6 +1077,19 @@ impl Daemon {
                     .and_then(|s| uuid::Uuid::parse_str(s).ok());
                 self.db.lock().await.profiles.iter().find(|p| Some(p.id) == id)
                     .map(|p| serde_json::json!({"payload":p.raw.clone().unwrap_or_else(|| serde_json::to_string(p).unwrap_or_default()),"format":"text"}))
+                    .unwrap_or_else(|| serde_json::json!({"error":"profile not found"}))
+            }
+            "profile.inner" => {
+                let id = params["profileId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                self.db
+                    .lock()
+                    .await
+                    .profiles
+                    .iter()
+                    .find(|p| Some(p.id) == id)
+                    .map(|p| serde_json::json!({"innerUri":rayarchy_core::import::to_inner_uri(p)}))
                     .unwrap_or_else(|| serde_json::json!({"error":"profile not found"}))
             }
             "profile.qr.image" => {
@@ -2473,5 +2504,55 @@ mod tests {
         assert_eq!(settings["defaultProfileId"], profile.id.to_string());
         assert_eq!(settings["ui"]["columns"][0]["key"], "delay");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn inner_uri_export_round_trips_through_import() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Inner".into(),
+            protocol: rayarchy_core::protocol::Protocol::Vless,
+            server: Some("inner.example".into()),
+            port: Some(443),
+            fields: serde_json::json!({"user":"00000000-0000-0000-0000-000000000004","security":"tls"}),
+            ..Default::default()
+        };
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        let exported = daemon
+            .dispatch("profile.inner", serde_json::json!({"profileId":profile.id}))
+            .await;
+        let uri = exported["innerUri"].as_str().unwrap();
+        assert!(uri.starts_with("v2rayn://vless/"));
+        let reimported = daemon
+            .dispatch("import.commit", serde_json::json!({"input":uri}))
+            .await;
+        assert!(reimported.get("profileIds").is_some());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn outbound_profiles_generate_singbox_configs() {
+        let profile = Profile {
+            protocol: rayarchy_core::protocol::Protocol::Outbound,
+            server: Some("o.example".into()),
+            port: Some(443),
+            raw: Some(
+                r#"{"type":"vless","server":"o.example","server_port":443,"uuid":"00000000-0000-0000-0000-000000000003"}"#
+                    .into(),
+            ),
+            ..Default::default()
+        };
+        let config = configgen::build(
+            &profile,
+            rayarchy_core::protocol::Core::SingBox,
+            "127.0.0.1",
+            1080,
+        );
+        assert_eq!(config["outbounds"][0]["type"], "vless");
+        assert_eq!(config["route"]["final"], "proxy");
     }
 }
