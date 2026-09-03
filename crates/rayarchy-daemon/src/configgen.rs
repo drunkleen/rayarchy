@@ -266,6 +266,48 @@ pub fn apply_lan_bypass(config: &mut serde_json::Value, core: Core, enabled: boo
     }
 }
 
+/// Add the traffic-observation surface used by the Clash tabs and the
+/// statistics poller. sing-box exposes the clash_api controller; xray exposes
+/// the stats + api inbounds. The state port is offset +5 from the proxy port
+/// (v2rayN's StatePort2 convention).
+pub fn apply_stats(config: &mut serde_json::Value, core: Core, port: u16) {
+    let state_port = port.saturating_add(5);
+    match core {
+        Core::SingBox => {
+            if !config.get("experimental").is_some() {
+                config["experimental"] = serde_json::json!({});
+            }
+            config["experimental"]["clash_api"] = serde_json::json!({
+                "external_controller": format!("127.0.0.1:{state_port}"),
+                "external_ui": "",
+                "secret": "",
+                "default_mode": "rule"
+            });
+        }
+        Core::Xray => {
+            config["stats"] = serde_json::json!({});
+            config["policy"] = serde_json::json!({
+                "system": {
+                    "statsOutboundUplink": true,
+                    "statsOutboundDownlink": true,
+                    "statsInboundUplink": true,
+                    "statsInboundDownlink": true
+                }
+            });
+            if let Some(inbounds) = config["inbounds"].as_array_mut() {
+                inbounds.push(serde_json::json!({
+                    "tag": "rayarchy-api",
+                    "listen": "127.0.0.1",
+                    "port": state_port,
+                    "protocol": "dokodemo-door",
+                    "settings": { "address": "127.0.0.1" }
+                }));
+            }
+        }
+        Core::Auto => {}
+    }
+}
+
 pub fn apply_rules(config: &mut serde_json::Value, core: Core, rules: &[RoutingRule]) {
     let enabled = rules.iter().filter(|r| r.enabled);
     match core {

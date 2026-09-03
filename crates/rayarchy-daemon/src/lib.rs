@@ -12,6 +12,7 @@ use tokio::sync::Mutex;
 pub mod configgen;
 pub mod server;
 pub mod sysproxy;
+pub mod udp;
 
 fn command_exists(name: &str) -> bool {
     std::env::var_os("PATH")
@@ -35,6 +36,43 @@ fn urlencoding(input: &str) -> String {
         }
     }
     out
+}
+
+/// Parse cumulative up/down traffic from the core's observation endpoint.
+/// sing-box `/traffic` streams `{"up":N,"down":N}` lines; xray `/debug/vars`
+/// exposes Go expvar counters whose keys contain `traffic|uplink` /
+/// `traffic|downlink`.
+fn parse_traffic(core: rayarchy_core::protocol::Core, body: &[u8]) -> Option<serde_json::Value> {
+    let text = String::from_utf8_lossy(body);
+    if core == rayarchy_core::protocol::Core::SingBox {
+        let first = text
+            .lines()
+            .find(|line| line.trim_start().starts_with('{'))?;
+        let value: serde_json::Value = serde_json::from_str(first).ok()?;
+        let up = value.get("up").and_then(|v| v.as_u64()).unwrap_or(0);
+        let down = value.get("down").and_then(|v| v.as_u64()).unwrap_or(0);
+        return Some(serde_json::json!({"up": up, "down": down}));
+    }
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let mut up = 0u64;
+    let mut down = 0u64;
+    if let Some(object) = value.as_object() {
+        for (key, counter) in object {
+            if key.contains("traffic|uplink") {
+                up = up.saturating_add(as_counter(counter));
+            } else if key.contains("traffic|downlink") {
+                down = down.saturating_add(as_counter(counter));
+            }
+        }
+    }
+    Some(serde_json::json!({"up": up, "down": down}))
+}
+
+fn as_counter(value: &serde_json::Value) -> u64 {
+    value
+        .as_u64()
+        .or_else(|| value.as_str()?.parse().ok())
+        .unwrap_or(0)
 }
 
 fn validate_profile(profile: &Profile) -> Result<(), String> {
@@ -273,6 +311,20 @@ async fn command_version(name: &str) -> Option<String> {
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
+struct ProfileStats {
+    #[serde(default)]
+    today_up: u64,
+    #[serde(default)]
+    today_down: u64,
+    #[serde(default)]
+    total_up: u64,
+    #[serde(default)]
+    total_down: u64,
+    #[serde(default)]
+    day: String,
+}
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 struct Database {
     #[serde(default)]
     profiles: Vec<Profile>,
@@ -284,6 +336,9 @@ struct Database {
     test_history: Vec<serde_json::Value>,
     #[serde(default)]
     settings: Settings,
+    /// Cumulative per-profile traffic counters keyed by profile id.
+    #[serde(default)]
+    statistics: std::collections::HashMap<String, ProfileStats>,
 }
 
 pub struct Daemon {
@@ -492,6 +547,7 @@ impl Daemon {
         configgen::apply_rules(&mut config, core, &rules);
         configgen::apply_dns(&mut config, core, settings.dns_leak_protection);
         configgen::apply_lan_bypass(&mut config, core, settings.lan_bypass);
+        configgen::apply_stats(&mut config, core, settings.local_port);
         if let Some(parent) = self.config_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
@@ -558,6 +614,7 @@ impl Daemon {
             }
         }
         *self.connected.lock().await = Some(id);
+        self.spawn_statistics_poller();
         let daemon = Arc::clone(self);
         tokio::spawn(async move {
             let mut child = match daemon.process.lock().await.take() {
@@ -648,7 +705,17 @@ impl Daemon {
                 let last_ip = self.last_ip.lock().await.clone();
                 let connecting =
                     profile_id.is_none() && self.child_pid.load(Ordering::Relaxed) != 0;
-                serde_json::json!({"connected": profile_id.is_some(), "connecting": connecting, "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "lastHealth": last_health, "lastIp": last_ip, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}})
+                let stats = match profile_id {
+                    Some(id) => self.profile_stats(id).await,
+                    None => {
+                        serde_json::json!({"todayUp":0,"todayDown":0,"totalUp":0,"totalDown":0})
+                    }
+                };
+                let mut status = serde_json::json!({"connected": profile_id.is_some(), "connecting": connecting, "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "lastHealth": last_health, "lastIp": last_ip, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}});
+                for (key, value) in stats.as_object().unwrap_or(&serde_json::Map::new()) {
+                    status[key] = value.clone();
+                }
+                status
             }
             "system.capabilities" => {
                 let settings = self.db.lock().await.settings.clone();
@@ -681,6 +748,7 @@ impl Daemon {
                 configgen::apply_rules(&mut config, core, &rules);
                 configgen::apply_dns(&mut config, core, settings.dns_leak_protection);
                 configgen::apply_lan_bypass(&mut config, core, settings.lan_bypass);
+                configgen::apply_stats(&mut config, core, settings.local_port);
                 let path = std::env::temp_dir()
                     .join(format!("rayarchy-validate-{}.json", uuid::Uuid::new_v4()));
                 if let Err(error) =
@@ -876,6 +944,154 @@ impl Daemon {
                 self.bulk_cancel.store(true, Ordering::Relaxed);
                 serde_json::json!({"ok":true})
             }
+            "test.udp" => {
+                if self.connected.lock().await.is_some() {
+                    return serde_json::json!({"error":"disconnect before running a UDP test"});
+                }
+                let id = params["profileId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let Some(id) = id else {
+                    return serde_json::json!({"error":"profileId is required"});
+                };
+                let profile_name = self
+                    .db
+                    .lock()
+                    .await
+                    .profiles
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map(|p| p.name.clone());
+                let Some(name) = profile_name else {
+                    return serde_json::json!({"error":"profile not found"});
+                };
+                if let Err(error) = self.connect_profile(id).await {
+                    return serde_json::json!({"error":error});
+                }
+                let port = self.db.lock().await.settings.local_port;
+                let result = udp::probe_dns("127.0.0.1", port).await;
+                let _ = self.disconnect_profile().await;
+                match result {
+                    Ok(latency_ms) => {
+                        let row = serde_json::json!({"kind":"udp","profileId":id,"name":name,"ok":true,"latencyMs":latency_ms});
+                        self.record_test(row.clone()).await;
+                        row
+                    }
+                    Err(error) => {
+                        let row = serde_json::json!({"kind":"udp","profileId":id,"name":name,"ok":false,"error":error});
+                        self.record_test(row.clone()).await;
+                        row
+                    }
+                }
+            }
+            "clash.proxies" => {
+                let port = self.db.lock().await.settings.local_port.saturating_add(5);
+                let output = tokio::process::Command::new("curl")
+                    .args(["-fsS", "--noproxy", "*", "--max-time", "3"])
+                    .arg(format!("http://127.0.0.1:{port}/proxies"))
+                    .output()
+                    .await;
+                match output {
+                    Ok(o) if o.status.success() => {
+                        match serde_json::from_slice::<serde_json::Value>(&o.stdout) {
+                            Ok(value) => value,
+                            Err(_) => serde_json::json!({"error":"invalid clash api response"}),
+                        }
+                    }
+                    Ok(_) => serde_json::json!({"error":"clash api is not reachable"}),
+                    Err(_) => serde_json::json!({"error":"clash api is not reachable"}),
+                }
+            }
+            "clash.connections" => {
+                let port = self.db.lock().await.settings.local_port.saturating_add(5);
+                let output = tokio::process::Command::new("curl")
+                    .args(["-fsS", "--noproxy", "*", "--max-time", "3"])
+                    .arg(format!("http://127.0.0.1:{port}/connections"))
+                    .output()
+                    .await;
+                match output {
+                    Ok(o) if o.status.success() => {
+                        match serde_json::from_slice::<serde_json::Value>(&o.stdout) {
+                            Ok(value) => value,
+                            Err(_) => serde_json::json!({"error":"invalid clash api response"}),
+                        }
+                    }
+                    _ => serde_json::json!({"error":"clash api is not reachable"}),
+                }
+            }
+            "clash.closeConnection" => {
+                let id = params["id"].as_str().unwrap_or("");
+                let port = self.db.lock().await.settings.local_port.saturating_add(5);
+                let output = tokio::process::Command::new("curl")
+                    .args(["-fsS", "-X", "DELETE", "--noproxy", "*", "--max-time", "3"])
+                    .arg(format!("http://127.0.0.1:{port}/connections/{id}"))
+                    .output()
+                    .await;
+                serde_json::json!({"ok": output.map(|o| o.status.success()).unwrap_or(false)})
+            }
+            "clash.closeAll" => {
+                let port = self.db.lock().await.settings.local_port.saturating_add(5);
+                let output = tokio::process::Command::new("curl")
+                    .args(["-fsS", "-X", "DELETE", "--noproxy", "*", "--max-time", "3"])
+                    .arg(format!("http://127.0.0.1:{port}/connections"))
+                    .output()
+                    .await;
+                serde_json::json!({"ok": output.map(|o| o.status.success()).unwrap_or(false)})
+            }
+            "clash.setMode" => {
+                let mode = params["mode"].as_str().unwrap_or("rule");
+                let port = self.db.lock().await.settings.local_port.saturating_add(5);
+                let output = tokio::process::Command::new("curl")
+                    .args(["-fsS", "-X", "PATCH", "--noproxy", "*", "--max-time", "3"])
+                    .arg(format!("http://127.0.0.1:{port}/configs"))
+                    .arg("-d")
+                    .arg(format!(r#"{{"mode":"{mode}"}}"#))
+                    .output()
+                    .await;
+                serde_json::json!({"ok": output.map(|o| o.status.success()).unwrap_or(false)})
+            }
+            "clash.select" => {
+                let group = params["group"].as_str().unwrap_or("");
+                let proxy = params["proxy"].as_str().unwrap_or("");
+                let port = self.db.lock().await.settings.local_port.saturating_add(5);
+                let output = tokio::process::Command::new("curl")
+                    .args(["-fsS", "-X", "PUT", "--noproxy", "*", "--max-time", "3"])
+                    .arg(format!("http://127.0.0.1:{port}/proxies/{group}"))
+                    .arg("-d")
+                    .arg(format!(r#"{{"name":"{proxy}"}}"#))
+                    .output()
+                    .await;
+                serde_json::json!({"ok": output.map(|o| o.status.success()).unwrap_or(false)})
+            }
+            "stats.current" => {
+                let core = self.db.lock().await.settings.preferred_core;
+                let port = self.db.lock().await.settings.local_port.saturating_add(5);
+                let core = if core == rayarchy_core::protocol::Core::Auto {
+                    let profile_id = *self.connected.lock().await;
+                    let db = self.db.lock().await;
+                    profile_id
+                        .and_then(|id| db.profiles.iter().find(|p| p.id == id))
+                        .map(|p| configgen::choose_core(p, db.settings.preferred_core))
+                        .unwrap_or(rayarchy_core::protocol::Core::Xray)
+                } else {
+                    core
+                };
+                let path = if core == rayarchy_core::protocol::Core::SingBox {
+                    "/traffic"
+                } else {
+                    "/debug/vars"
+                };
+                let output = tokio::process::Command::new("curl")
+                    .args(["-fsS", "--noproxy", "*", "--max-time", "3"])
+                    .arg(format!("http://127.0.0.1:{port}{path}"))
+                    .output()
+                    .await;
+                match output {
+                    Ok(o) if o.status.success() => parse_traffic(core, &o.stdout)
+                        .unwrap_or_else(|| serde_json::json!({"up":0,"down":0})),
+                    _ => serde_json::json!({"up":0,"down":0}),
+                }
+            }
             "test.proxy" => {
                 let port = self.db.lock().await.settings.local_port;
                 let start = std::time::Instant::now();
@@ -1017,6 +1233,7 @@ impl Daemon {
                 }
                 let mut output = Vec::with_capacity(profiles.len());
                 for profile in profiles {
+                    let profile_id = profile.id;
                     let mut value = serde_json::to_value(profile).unwrap_or_default();
                     value["default"] = serde_json::Value::Bool(
                         value["id"]
@@ -1024,6 +1241,10 @@ impl Daemon {
                             .and_then(|s| uuid::Uuid::parse_str(s).ok())
                             == default_id,
                     );
+                    let stats = self.profile_stats(profile_id).await;
+                    for (key, stat_value) in stats.as_object().unwrap_or(&serde_json::Map::new()) {
+                        value[key] = stat_value.clone();
+                    }
                     if let Some(test) = history.iter().rev().find(|row| {
                         let fresh = row
                             .get("timestamp")
@@ -1522,6 +1743,21 @@ impl Daemon {
                 let _ = self.save().await;
                 serde_json::json!({"ok":true})
             }
+            "statistics.clear" => {
+                let profile_id = params["profileId"]
+                    .as_str()
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok());
+                let mut db = self.db.lock().await;
+                match profile_id {
+                    Some(id) => {
+                        db.statistics.remove(&id.to_string());
+                    }
+                    None => db.statistics.clear(),
+                }
+                drop(db);
+                let _ = self.save().await;
+                serde_json::json!({"ok":true})
+            }
             "settings.get" => {
                 serde_json::to_value(&self.db.lock().await.settings).unwrap_or_default()
             }
@@ -1762,6 +1998,103 @@ impl Daemon {
         }
         drop(db);
         let _ = self.save().await;
+    }
+
+    /// Sample the connected core's cumulative traffic and fold the deltas into
+    /// the profile's today/total counters. Runs until the connection drops.
+    fn spawn_statistics_poller(self: &Arc<Self>) {
+        let daemon = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut last_up = 0u64;
+            let mut last_down = 0u64;
+            loop {
+                let profile_id = *daemon.connected.lock().await;
+                let Some(profile_id) = profile_id else { break };
+                let (port, core) = {
+                    let db = daemon.db.lock().await;
+                    let port = db.settings.local_port.saturating_add(5);
+                    let core = db
+                        .profiles
+                        .iter()
+                        .find(|p| p.id == profile_id)
+                        .map(|p| configgen::choose_core(p, db.settings.preferred_core))
+                        .unwrap_or(rayarchy_core::protocol::Core::Xray);
+                    (port, core)
+                };
+                let path = if core == rayarchy_core::protocol::Core::SingBox {
+                    "/traffic"
+                } else {
+                    "/debug/vars"
+                };
+                let output = tokio::process::Command::new("curl")
+                    .args(["-fsS", "--noproxy", "*", "--max-time", "2"])
+                    .arg(format!("http://127.0.0.1:{port}{path}"))
+                    .output()
+                    .await;
+                let parsed = output
+                    .ok()
+                    .filter(|o| o.status.success())
+                    .and_then(|o| parse_traffic(core, &o.stdout));
+                let (up, down) = parsed
+                    .map(|v| {
+                        (
+                            v["up"].as_u64().unwrap_or(0),
+                            v["down"].as_u64().unwrap_or(0),
+                        )
+                    })
+                    .unwrap_or((last_up, last_down));
+                if up >= last_up && down >= last_down {
+                    let up_delta = up - last_up;
+                    let down_delta = down - last_down;
+                    last_up = up;
+                    last_down = down;
+                    if up_delta > 0 || down_delta > 0 {
+                        daemon
+                            .accumulate_stats(profile_id, up_delta, down_delta)
+                            .await;
+                    }
+                } else {
+                    last_up = up;
+                    last_down = down;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+        });
+    }
+
+    async fn accumulate_stats(&self, profile_id: uuid::Uuid, up: u64, down: u64) {
+        let day = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let key = profile_id.to_string();
+        let mut db = self.db.lock().await;
+        let stats = db.statistics.entry(key).or_default();
+        if stats.day != day {
+            stats.today_up = 0;
+            stats.today_down = 0;
+            stats.day = day;
+        }
+        stats.today_up = stats.today_up.saturating_add(up);
+        stats.today_down = stats.today_down.saturating_add(down);
+        stats.total_up = stats.total_up.saturating_add(up);
+        stats.total_down = stats.total_down.saturating_add(down);
+        drop(db);
+        let _ = self.save().await;
+    }
+
+    async fn profile_stats(&self, profile_id: uuid::Uuid) -> serde_json::Value {
+        let db = self.db.lock().await;
+        db.statistics
+            .get(&profile_id.to_string())
+            .map(|s| {
+                serde_json::json!({
+                    "todayUp": s.today_up,
+                    "todayDown": s.today_down,
+                    "totalUp": s.total_up,
+                    "totalDown": s.total_down
+                })
+            })
+            .unwrap_or_else(
+                || serde_json::json!({"todayUp":0,"todayDown":0,"totalUp":0,"totalDown":0}),
+            )
     }
 }
 
@@ -2586,6 +2919,54 @@ mod tests {
             "https%3A%2F%2Fa.example%2Fsub%3Fx%3D1%26y%3Dtwo"
         );
         assert_eq!(urlencoding("plain"), "plain");
+    }
+
+    #[test]
+    fn parses_traffic_from_both_cores() {
+        let sing = parse_traffic(
+            rayarchy_core::protocol::Core::SingBox,
+            br#"{"up":123,"down":456}"#,
+        )
+        .unwrap();
+        assert_eq!(sing["up"], 123);
+        assert_eq!(sing["down"], 456);
+        let xray = parse_traffic(
+            rayarchy_core::protocol::Core::Xray,
+            br#"{"proxy|outbound|direct|traffic|uplink":"100","proxy|outbound|proxy|traffic|downlink":"200","other":"x"}"#,
+        )
+        .unwrap();
+        assert_eq!(xray["up"], 100);
+        assert_eq!(xray["down"], 200);
+    }
+
+    #[tokio::test]
+    async fn statistics_accumulate_per_profile_and_rotate_daily() {
+        let path =
+            std::env::temp_dir().join(format!("rayarchy-test-{}.json", uuid::Uuid::new_v4()));
+        let daemon = Daemon::new(path.clone()).unwrap();
+        let profile = Profile {
+            name: "Stats".into(),
+            server: Some("stats.example".into()),
+            ..Default::default()
+        };
+        daemon
+            .dispatch("profile.create", serde_json::json!({"profile":profile}))
+            .await;
+        daemon.accumulate_stats(profile.id, 500, 900).await;
+        daemon.accumulate_stats(profile.id, 100, 100).await;
+        let listed = daemon.dispatch("profile.list", serde_json::json!({})).await;
+        assert_eq!(listed[0]["todayUp"], 600);
+        assert_eq!(listed[0]["totalDown"], 1000);
+        let cleared = daemon
+            .dispatch(
+                "statistics.clear",
+                serde_json::json!({"profileId":profile.id}),
+            )
+            .await;
+        assert_eq!(cleared["ok"], true);
+        let listed = daemon.dispatch("profile.list", serde_json::json!({})).await;
+        assert_eq!(listed[0]["totalUp"], 0);
+        let _ = std::fs::remove_file(path);
     }
 
     #[tokio::test]

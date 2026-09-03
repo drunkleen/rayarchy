@@ -93,6 +93,55 @@ async fn main() -> anyhow::Result<()> {
                     .await,
             );
         }
+        "udp" => {
+            let id = args.next().unwrap_or_default();
+            print_json(
+                daemon
+                    .dispatch("test.udp", serde_json::json!({"profileId":id}))
+                    .await,
+            );
+        }
+        "stats" => {
+            print_json(
+                daemon
+                    .dispatch("stats.current", serde_json::json!({}))
+                    .await,
+            );
+        }
+        "stats-clear" => {
+            let id = args.next().unwrap_or_default();
+            print_json(
+                daemon
+                    .dispatch("statistics.clear", serde_json::json!({"profileId":id}))
+                    .await,
+            );
+        }
+        "clash" => {
+            let verb = args.next().unwrap_or_default();
+            let rest: Vec<String> = args.collect();
+            let params = match verb.as_str() {
+                "proxies" => serde_json::json!({}),
+                "connections" => serde_json::json!({}),
+                "close-all" => serde_json::json!({}),
+                "set-mode" => {
+                    serde_json::json!({"mode": rest.first().map(String::as_str).unwrap_or("rule")})
+                }
+                "select" => {
+                    serde_json::json!({"group": rest.first().unwrap_or(&String::new()), "proxy": rest.get(1).unwrap_or(&String::new())})
+                }
+                "close" => serde_json::json!({"id": rest.first().unwrap_or(&String::new())}),
+                _ => serde_json::json!({}),
+            };
+            let method = match verb.as_str() {
+                "connections" => "clash.connections",
+                "close-all" => "clash.closeAll",
+                "set-mode" => "clash.setMode",
+                "select" => "clash.select",
+                "close" => "clash.closeConnection",
+                _ => "clash.proxies",
+            };
+            print_json(daemon.dispatch(method, params).await);
+        }
         "best" => {
             let connect = args.any(|arg| arg == "--connect");
             let profiles = daemon.dispatch("profile.list", serde_json::json!({})).await;
@@ -141,7 +190,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         "help" | "--help" | "-h" => {
-            println!("rayarchy [status|profiles|connect ID|disconnect|set-default ID|default|reload|export-inner ID|ip|history|bulk ID...|bulk-proxy ID...|speed-profile ID|best [--connect]|diagnostics|validate ID|import URI|ui-get]")
+            println!("rayarchy [status|profiles|connect ID|disconnect|set-default ID|default|reload|export-inner ID|ip|history|bulk ID...|bulk-proxy ID...|speed-profile ID|udp ID|stats|stats-clear|clash proxies|clash connections|clash select GROUP PROXY|clash set-mode MODE|clash close-all|best [--connect]|diagnostics|validate ID|import URI|ui-get]")
         }
         command => {
             eprintln!("unknown command: {command}");
