@@ -2040,6 +2040,7 @@ impl Daemon {
             }
             "settings.update" => {
                 let value = params.get("settings").cloned().unwrap_or_default();
+                let dns_present = value.get("dns").is_some();
                 match serde_json::from_value::<Settings>(value) {
                     Ok(mut s) => {
                         if s.local_port == 0 {
@@ -2056,13 +2057,16 @@ impl Daemon {
                         }
                         {
                             let mut db = self.db.lock().await;
-                            // default_profile_id, ui and dns are owned by
-                            // other RPCs (profile.setDefault / ui.set / the
-                            // DNS sheet); an option-settings save must not
-                            // silently clear them.
+                            // default_profile_id and ui are owned by other RPCs
+                            // (profile.setDefault / ui.set); an option-settings
+                            // save must not silently clear them. dns is only
+                            // preserved when the payload omits it (the DNS sheet
+                            // sends it explicitly).
                             s.default_profile_id = db.settings.default_profile_id;
                             s.ui = db.settings.ui.clone();
-                            s.dns = db.settings.dns.clone();
+                            if !dns_present {
+                                s.dns = db.settings.dns.clone();
+                            }
                             db.settings = s;
                         }
                         let _ = self.save().await;
