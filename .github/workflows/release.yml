@@ -17,6 +17,7 @@ jobs:
           mkdir -p dist/rayarchy
           install -Dm755 target/release/rayarchy dist/rayarchy/rayarchy
           install -Dm755 target/release/rayarchy-daemon dist/rayarchy/rayarchy-daemon
+          install -Dm755 target/release/rayarchy-helper dist/rayarchy/rayarchy-helper
           install -Dm755 setup.sh dist/rayarchy/setup.sh
           install -Dm755 packaging/uninstall.sh dist/rayarchy/uninstall.sh
           cp manifest.json dist/rayarchy/

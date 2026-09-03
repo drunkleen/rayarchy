@@ -260,7 +260,7 @@ const strings = {
   coreMissing: "Missing",
   coreUpToDate: "Up to date",
 
-  tunNotAvailable: "TUN requires the privileged helper (coming in a later release)",
+  tunNotAvailable: "TUN requires the rayarchy-helper binary (run setup.sh to install it)",
   daemonUnreachable: "The Rayarchy daemon could not be reached. Run setup.sh to install the backend.",
   backendNotInstalled: "Rayarchy backend is not installed or not running",
   connectFailed: "Connection failed",

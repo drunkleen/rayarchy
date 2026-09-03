@@ -101,8 +101,9 @@ Rectangle {
       }
       ToggleSwitch {
         id: tunSwitch
-        checked: false
-        enabled: false
+        checked: root.app ? root.app.connectionMode === "tun" : false
+        enabled: root.app && root.app.tunAvailable
+        onToggled: root.app.toggleTun()
       }
     }
 

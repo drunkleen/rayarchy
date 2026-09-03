@@ -601,9 +601,8 @@ impl Daemon {
         } else {
             profile.clone()
         };
-        let core = if tun_mode {
-            rayarchy_core::protocol::Core::SingBox
-        } else if profile.protocol == rayarchy_core::protocol::Protocol::ProxyChain {
+        let core = if tun_mode || profile.protocol == rayarchy_core::protocol::Protocol::ProxyChain
+        {
             rayarchy_core::protocol::Core::SingBox
         } else {
             configgen::choose_core(&selected, settings.preferred_core)

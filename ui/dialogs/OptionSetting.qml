@@ -73,7 +73,7 @@ Sheet {
               return idx !== undefined ? idx : 0
             }
             onActivated: {
-              if (currentIndex >= 2) {
+              if (currentIndex >= 2 && !dialog.app.tunAvailable) {
                 dialog.app.notify(Strings.tr("tunNotAvailable"))
                 currentIndex = dialog.settings.connectionMode === "local" ? 1 : 0
               }
@@ -83,7 +83,7 @@ Sheet {
           CheckBox {
             id: killSwitchField
             checked: !!dialog.settings.killSwitch
-            enabled: false
+            enabled: dialog.app ? dialog.app.tunAvailable : false
           }
           Text { text: Strings.tr("settingDnsLeak"); color: Color.foreground; font.pixelSize: Style.font.bodySmall }
           CheckBox { id: dnsField; checked: dialog.settings.dnsLeakProtection !== false }
@@ -140,7 +140,9 @@ Sheet {
           anchors.margins: Style.space(8)
           spacing: Style.space(8)
           Text {
-            text: Strings.tr("tunNotAvailable")
+            text: dialog.app && dialog.app.tunAvailable
+              ? "TUN routes all traffic through sing-box using the privileged helper (pkexec)."
+              : Strings.tr("tunNotAvailable")
             color: Color.muted
             font.pixelSize: Style.font.bodySmall
             wrapMode: Text.Wrap
@@ -196,11 +198,12 @@ Sheet {
       return
     }
     var retention = parseInt(retentionField.text, 10)
+    var modeMap = ["system_proxy", "local", "tun", "transparent"]
     var s = {
-      connectionMode: dialog.settings.connectionMode || "system_proxy",
+      connectionMode: modeMap[modeField.currentIndex] || "system_proxy",
       preferredCore: coreField.currentText,
       localPort: port,
-      killSwitch: false,
+      killSwitch: killSwitchField.checked,
       dnsLeakProtection: dnsField.checked,
       lanBypass: lanField.checked,
       healthRetentionHours: isNaN(retention) ? 24 : retention

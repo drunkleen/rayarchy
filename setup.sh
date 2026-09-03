@@ -11,6 +11,7 @@ if [[ "${1:-}" == "--check" ]]; then
 fi
 daemon_bin=""
 cli_bin=""
+helper_bin=""
 release_tmp=""
 if [[ "${RAYARCHY_BUILD_FROM_SOURCE:-0}" != "1" ]] && command -v curl >/dev/null && command -v tar >/dev/null && command -v sha256sum >/dev/null && command -v jq >/dev/null; then
   version=$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' "$root/manifest.json" | head -1)
@@ -27,6 +28,7 @@ if [[ "${RAYARCHY_BUILD_FROM_SOURCE:-0}" != "1" ]] && command -v curl >/dev/null
     tar -xzf "$archive" -C "$release_tmp"
     daemon_bin="$release_tmp/rayarchy/rayarchy-daemon"
     cli_bin="$release_tmp/rayarchy/rayarchy"
+    helper_bin="$release_tmp/rayarchy/rayarchy-helper"
     echo "Using Rayarchy ${release_tag} release binaries"
   else
     echo "Release ${release_tag} unavailable or checksum failed; building from source"
@@ -37,9 +39,11 @@ if [[ -z "$daemon_bin" || -z "$cli_bin" ]]; then
   cargo build --release --workspace --manifest-path "$root/Cargo.toml"
   daemon_bin="$root/target/release/rayarchy-daemon"
   cli_bin="$root/target/release/rayarchy"
+  helper_bin="$root/target/release/rayarchy-helper"
 fi
 install -Dm755 "$daemon_bin" "$HOME/.local/bin/rayarchy-daemon"
 install -Dm755 "$cli_bin" "$HOME/.local/bin/rayarchy"
+[[ -n "$helper_bin" ]] && [[ -f "$helper_bin" ]] && install -Dm755 "$helper_bin" "$HOME/.local/bin/rayarchy-helper"
 install -Dm644 "$root/packaging/rayarchy.service" "$HOME/.config/systemd/user/rayarchy.service"
 systemctl --user daemon-reload
 systemctl --user enable rayarchy.service

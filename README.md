@@ -1,6 +1,6 @@
 # Rayarchy
 
-Current release channel: **0.1.0-beta.2**. See [docs/beta.md](docs/beta.md)
+Current release channel: **0.1.0-beta.3**. See [docs/beta.md](docs/beta.md)
 for the install flow and known beta limits.
 
 Rust v2rayN-inspired proxy management for Omarchy. It provides a systemd user

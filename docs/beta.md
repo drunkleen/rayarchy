@@ -24,12 +24,14 @@ routing presets, DNS settings, backup/restore, diagnostics, JSON CLI workflows,
 and a Check Update dialog that downloads and SHA-256-verifies cores and geo
 data into `~/.local/share/rayarchy/bin`.
 
-Known beta limits are TUN/transparent routing and kill switch support (they
-land with the privileged-helper release), advanced core-config tuning (mux,
-reality fingerprint presets, transport fragments, LAN inbound auth) and
-per-node Clash delay-testing, and endpoint-specific compatibility differences
-between proxy providers. Rayarchy refuses unsupported modes and never reports a
-connection until an outbound health check succeeds.
+Known beta limits are advanced core-config tuning (mux, reality fingerprint
+presets, transport fragments, LAN inbound auth), per-node Clash delay-testing,
+and endpoint-specific compatibility differences between proxy providers.
+TUN/transparent routing and the kill switch are available when the
+`rayarchy-helper` binary is installed by `setup.sh`; enabling TUN prompts once
+through the Polkit agent (session authorization is remembered). Rayarchy
+refuses unsupported modes and never reports a connection until an outbound
+health check succeeds.
 
 For upgrades from an older checkout, run `./setup.sh` again. If an older
 `rayarchy` binary in `/usr/local/bin` shadows the plugin CLI, invoke the

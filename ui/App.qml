@@ -95,6 +95,60 @@ Item {
     root.refreshStatus()
     if (profilesView) profilesView.refresh()
     if (statusBar) statusBar.refreshRouting()
+    if (rpc.ready) {
+      rpc.call("system.capabilities", {}, function (caps) {
+        if (caps) root.tunAvailable = caps.tun === true
+      })
+      rpc.call("settings.get", {}, function (s) {
+        if (s && s.connectionMode) root.connectionMode = s.connectionMode
+        if (s) root.killSwitch = s.killSwitch === true
+      })
+    }
+  }
+
+  property string connectionMode: "system_proxy"
+  property bool killSwitch: false
+  property bool tunAvailable: false
+
+  function toggleTun() {
+    if (!rpc.ready) { root.notify(Strings.tr("backendNotInstalled")); return }
+    var enable = root.connectionMode !== "tun"
+    if (enable && root.status.profileId) {
+      root.confirm(Strings.tr("runningConnecting") + " — TUN?", function () {
+        root.applyConnectionMode("tun")
+      })
+      return
+    }
+    root.applyConnectionMode(enable ? "tun" : "system_proxy")
+  }
+
+  function applyConnectionMode(mode) {
+    var active = root.status.profileId
+    if (active) {
+      rpc.call("profile.disconnect", {}, function () { root.commitConnectionMode(mode, active) })
+    } else {
+      root.commitConnectionMode(mode, null)
+    }
+  }
+
+  function commitConnectionMode(mode, activeId) {
+    rpc.call("settings.get", {}, function (s) {
+      var settings = s || {}
+      var connectedId = activeId
+      settings.connectionMode = mode
+      rpc.call("settings.update", { settings: settings }, function (result) {
+        if (result.error) { root.notify(result.error); return }
+        root.connectionMode = mode
+        if (connectedId) {
+          rpc.call("profile.connect", { profileId: connectedId }, function (res) {
+            if (res.error) root.notify(Strings.tr("connectFailed") + ": " + res.error)
+            root.refreshAll()
+          })
+        } else {
+          root.refreshAll()
+        }
+      })
+    })
   }
 
   // ---- UI state persistence -----------------------------------------------------
