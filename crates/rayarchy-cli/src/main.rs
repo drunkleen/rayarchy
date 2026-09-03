@@ -38,6 +38,23 @@ async fn main() -> anyhow::Result<()> {
                     .await,
             );
         }
+        "update" => {
+            let action = args.next().unwrap_or_default();
+            if action == "install" {
+                let target = args.next().unwrap_or_default();
+                let version = args.next().unwrap_or_default();
+                print_json(
+                    daemon
+                        .dispatch(
+                            "update.install",
+                            serde_json::json!({"target":target,"version":version}),
+                        )
+                        .await,
+                );
+            } else {
+                print_json(daemon.dispatch("update.check", serde_json::json!({})).await);
+            }
+        }
         "export-inner" => {
             let id = args.next().unwrap_or_default();
             print_json(
@@ -190,7 +207,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         "help" | "--help" | "-h" => {
-            println!("rayarchy [status|profiles|connect ID|disconnect|set-default ID|default|reload|export-inner ID|ip|history|bulk ID...|bulk-proxy ID...|speed-profile ID|udp ID|stats|stats-clear|clash proxies|clash connections|clash select GROUP PROXY|clash set-mode MODE|clash close-all|best [--connect]|diagnostics|validate ID|import URI|ui-get]")
+            println!("rayarchy [status|profiles|connect ID|disconnect|set-default ID|default|reload|export-inner ID|ip|history|bulk ID...|bulk-proxy ID...|speed-profile ID|udp ID|stats|stats-clear|clash proxies|clash connections|clash select GROUP PROXY|clash set-mode MODE|clash close-all|update [install TARGET VERSION]|best [--connect]|diagnostics|validate ID|import URI|ui-get]")
         }
         command => {
             eprintln!("unknown command: {command}");

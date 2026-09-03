@@ -13,11 +13,22 @@ pub mod configgen;
 pub mod server;
 pub mod sysproxy;
 pub mod udp;
+pub mod update;
 
 fn command_exists(name: &str) -> bool {
     std::env::var_os("PATH")
         .map(|path| std::env::split_paths(&path).any(|dir| dir.join(name).is_file()))
         .unwrap_or(false)
+}
+
+/// Prefer a locally-managed core under the data bin dir, falling back to PATH.
+fn resolve_bin(bin_dir: &std::path::Path, name: &str) -> PathBuf {
+    let local = bin_dir.join(name);
+    if local.is_file() {
+        local
+    } else {
+        PathBuf::from(name)
+    }
 }
 
 fn valid_subscription_url(url: &str) -> bool {
@@ -73,6 +84,54 @@ fn as_counter(value: &serde_json::Value) -> u64 {
         .as_u64()
         .or_else(|| value.as_str()?.parse().ok())
         .unwrap_or(0)
+}
+
+/// Extract an archive (zip or tar.gz) in memory using system tools and return
+/// the file paths of the entries. Used by the core installer.
+fn extract_archive(asset: &str, bytes: &[u8]) -> Option<Vec<Vec<u8>>> {
+    let tmp = std::env::temp_dir().join(format!("rayarchy-extract-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp).ok()?;
+    let archive_path = tmp.join("archive.bin");
+    std::fs::write(&archive_path, bytes).ok()?;
+    let status = if asset.ends_with(".zip") {
+        std::process::Command::new("unzip")
+            .arg("-o")
+            .arg(&archive_path)
+            .arg("-d")
+            .arg(&tmp)
+            .status()
+            .ok()
+    } else if asset.ends_with(".tar.gz") || asset.ends_with(".tgz") {
+        std::process::Command::new("tar")
+            .arg("-xzf")
+            .arg(&archive_path)
+            .arg("-C")
+            .arg(&tmp)
+            .status()
+            .ok()
+    } else {
+        None
+    };
+    let success = status.map(|s| s.success()).unwrap_or(false);
+    let mut files = Vec::new();
+    if success {
+        collect_files(&tmp, &mut files);
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
+    success.then_some(files)
+}
+
+fn collect_files(dir: &std::path::Path, out: &mut Vec<Vec<u8>>) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_files(&path, out);
+            } else if let Ok(bytes) = std::fs::read(&path) {
+                out.push(bytes);
+            }
+        }
+    }
 }
 
 fn validate_profile(profile: &Profile) -> Result<(), String> {
@@ -269,37 +328,40 @@ fn validate_rule(rule: &RoutingRule) -> Result<(), String> {
 async fn validate_core_config(
     core: rayarchy_core::protocol::Core,
     path: &std::path::Path,
+    bin_dir: &std::path::Path,
 ) -> Result<(), String> {
-    let bin = if core == rayarchy_core::protocol::Core::SingBox {
+    let name = if core == rayarchy_core::protocol::Core::SingBox {
         "sing-box"
     } else {
         "xray"
     };
+    let bin = resolve_bin(bin_dir, name);
     let args: &[&str] = if core == rayarchy_core::protocol::Core::SingBox {
         &["check", "-c"]
     } else {
         &["run", "-test", "-c"]
     };
-    let output = tokio::process::Command::new(bin)
+    let output = tokio::process::Command::new(&bin)
         .args(args)
         .arg(path)
         .output()
         .await
-        .map_err(|e| format!("could not validate {bin} config: {e}"))?;
+        .map_err(|e| format!("could not validate {name} config: {e}"))?;
     if output.status.success() {
         Ok(())
     } else {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
         Err(if detail.is_empty() {
-            format!("{bin} rejected the generated configuration")
+            format!("{name} rejected the generated configuration")
         } else {
-            format!("{bin} rejected the generated configuration: {detail}")
+            format!("{name} rejected the generated configuration: {detail}")
         })
     }
 }
 
-async fn command_version(name: &str) -> Option<String> {
-    let output = tokio::process::Command::new(name)
+async fn command_version(name: &str, bin_dir: &std::path::Path) -> Option<String> {
+    let bin = resolve_bin(bin_dir, name);
+    let output = tokio::process::Command::new(&bin)
         .arg("--version")
         .output()
         .await
@@ -344,6 +406,7 @@ struct Database {
 pub struct Daemon {
     db: Mutex<Database>,
     path: PathBuf,
+    bin_dir: PathBuf,
     connected: Mutex<Option<uuid::Uuid>>,
     process: Mutex<Option<tokio::process::Child>>,
     child_pid: AtomicU32,
@@ -361,9 +424,14 @@ impl Daemon {
         } else {
             Database::default()
         };
+        let bin_dir = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("rayarchy-data"))
+            .join("rayarchy/bin");
         Ok(Arc::new(Self {
             db: Mutex::new(db),
             path,
+            bin_dir,
             connected: Mutex::new(None),
             process: Mutex::new(None),
             child_pid: AtomicU32::new(0),
@@ -561,8 +629,8 @@ impl Daemon {
         } else {
             "xray"
         };
-        validate_core_config(core, &self.config_path).await?;
-        let child = tokio::process::Command::new(bin)
+        validate_core_config(core, &self.config_path, &self.bin_dir).await?;
+        let child = tokio::process::Command::new(resolve_bin(&self.bin_dir, bin))
             .args(["run", "-c"])
             .arg(&self.config_path)
             .stdout(std::process::Stdio::null())
@@ -711,7 +779,7 @@ impl Daemon {
                         serde_json::json!({"todayUp":0,"todayDown":0,"totalUp":0,"totalDown":0})
                     }
                 };
-                let mut status = serde_json::json!({"connected": profile_id.is_some(), "connecting": connecting, "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "lastHealth": last_health, "lastIp": last_ip, "cores": {"xray": command_exists("xray"), "singBox": command_exists("sing-box")}});
+                let mut status = serde_json::json!({"connected": profile_id.is_some(), "connecting": connecting, "profileId": profile_id, "profileName": profile_name, "core": core, "localPort": local_port, "lastHealth": last_health, "lastIp": last_ip, "cores": {"xray": self.core_available("xray"), "singBox": self.core_available("sing-box")}});
                 for (key, value) in stats.as_object().unwrap_or(&serde_json::Map::new()) {
                     status[key] = value.clone();
                 }
@@ -719,13 +787,13 @@ impl Daemon {
             }
             "system.capabilities" => {
                 let settings = self.db.lock().await.settings.clone();
-                serde_json::json!({"xray":command_exists("xray"),"singBox":command_exists("sing-box"),"systemProxy":true,"dnsProtection":settings.dns_leak_protection,"lanBypass":settings.lan_bypass,"tun":false,"transparent":false,"killSwitch":false})
+                serde_json::json!({"xray":self.core_available("xray"),"singBox":self.core_available("sing-box"),"systemProxy":true,"dnsProtection":settings.dns_leak_protection,"lanBypass":settings.lan_bypass,"tun":false,"transparent":false,"killSwitch":false})
             }
             "system.diagnostics" => {
                 let started = *self.core_started_at.lock().await;
                 let status = serde_json::json!({"connected": self.connected.lock().await.is_some(), "socket": true, "corePid": self.child_pid.load(Ordering::Relaxed), "coreUptimeSeconds": started.map(|at| (chrono::Utc::now().timestamp() - at).max(0))});
-                let xray = command_version("xray").await;
-                let sing_box = command_version("sing-box").await;
+                let xray = command_version("xray", &self.bin_dir).await;
+                let sing_box = command_version("sing-box", &self.bin_dir).await;
                 serde_json::json!({"status":status,"cores":{"xray":xray,"singBox":sing_box},"hints": if xray.is_none() && sing_box.is_none() { vec!["install xray or sing-box"] } else { Vec::<&str>::new() }})
             }
             "core.validate" => {
@@ -756,7 +824,7 @@ impl Daemon {
                 {
                     return serde_json::json!({"error":error.to_string()});
                 }
-                let result = validate_core_config(core, &path).await;
+                let result = validate_core_config(core, &path, &self.bin_dir).await;
                 let _ = std::fs::remove_file(&path);
                 match result {
                     Ok(()) => serde_json::json!({"ok":true,"core":core}),
@@ -1758,6 +1826,161 @@ impl Daemon {
                 let _ = self.save().await;
                 serde_json::json!({"ok":true})
             }
+            "update.check" => {
+                let installed_xray = command_version("xray", &self.bin_dir)
+                    .await
+                    .unwrap_or_default();
+                let installed_sing = command_version("sing-box", &self.bin_dir)
+                    .await
+                    .unwrap_or_default();
+                let installed_geoip = self.bin_dir.join("geoip.dat").is_file();
+                let installed_geosite = self.bin_dir.join("geosite.dat").is_file();
+                let mut result = serde_json::json!({
+                    "installed": {
+                        "xray": installed_xray,
+                        "sing-box": installed_sing,
+                        "geoip.dat": installed_geoip,
+                        "geosite.dat": installed_geosite
+                    },
+                    "latest": {}
+                });
+                for core in update::CORES {
+                    let Some(repo) = update::core_repo(core) else {
+                        continue;
+                    };
+                    let url = update::latest_release_api(repo);
+                    if let Ok(output) = tokio::process::Command::new("curl")
+                        .args([
+                            "-fsSL",
+                            "--noproxy",
+                            "*",
+                            "--max-time",
+                            "8",
+                            "-H",
+                            "Accept: application/vnd.github+json",
+                            "-H",
+                            "User-Agent: rayarchy",
+                        ])
+                        .arg(&url)
+                        .output()
+                        .await
+                    {
+                        if output.status.success() {
+                            if let Some(tag) =
+                                update::tag_from_latest(&String::from_utf8_lossy(&output.stdout))
+                            {
+                                result["latest"][core] = serde_json::json!(tag);
+                            }
+                        }
+                    }
+                }
+                let geo_url = update::latest_release_api(update::geo_repo());
+                if let Ok(output) = tokio::process::Command::new("curl")
+                    .args([
+                        "-fsSL",
+                        "--noproxy",
+                        "*",
+                        "--max-time",
+                        "8",
+                        "-H",
+                        "Accept: application/vnd.github+json",
+                        "-H",
+                        "User-Agent: rayarchy",
+                    ])
+                    .arg(&geo_url)
+                    .output()
+                    .await
+                {
+                    if output.status.success() {
+                        if let Some(tag) =
+                            update::tag_from_latest(&String::from_utf8_lossy(&output.stdout))
+                        {
+                            result["latest"]["geo"] = serde_json::json!(tag);
+                        }
+                    }
+                }
+                result
+            }
+            "update.install" => {
+                let target = params["target"].as_str().unwrap_or("").to_string();
+                let tag = params["version"].as_str().unwrap_or("").to_string();
+                let bin_dir = self.bin_dir.clone();
+                if target == "geoip.dat" || target == "geosite.dat" {
+                    let url = format!(
+                        "https://github.com/{}/releases/latest/download/{target}",
+                        update::geo_repo()
+                    );
+                    let sha_url = format!(
+                        "https://github.com/{}/releases/latest/download/sha256sum",
+                        update::geo_repo()
+                    );
+                    let bytes = match tokio::process::Command::new("curl")
+                        .args(["-fsSL", "--noproxy", "*", "--max-time", "60", "-L"])
+                        .arg(&url)
+                        .output()
+                        .await
+                    {
+                        Ok(o) if o.status.success() => o,
+                        _ => {
+                            return serde_json::json!({"error":format!("could not download {target}")})
+                        }
+                    };
+                    let expected = tokio::process::Command::new("curl")
+                        .args(["-fsSL", "--noproxy", "*", "--max-time", "15"])
+                        .arg(&sha_url)
+                        .output()
+                        .await
+                        .ok()
+                        .filter(|o| o.status.success())
+                        .map(|o| {
+                            let entries =
+                                update::parse_sha256sums(&String::from_utf8_lossy(&o.stdout));
+                            update::checksum_for(&entries, &target).map(str::to_string)
+                        })
+                        .and_then(|v| v);
+                    if let Some(expected) = expected {
+                        if !update::verify_sha256(&bytes.stdout, &expected) {
+                            return serde_json::json!({"error":format!("sha256 mismatch for {target}")});
+                        }
+                    }
+                    match update::write_bin(&bin_dir, &target, &bytes.stdout) {
+                        Ok(_) => return serde_json::json!({"ok":true,"target":target}),
+                        Err(e) => return serde_json::json!({"error":e.to_string()}),
+                    }
+                }
+                let Some(repo) = update::core_repo(&target) else {
+                    return serde_json::json!({"error":"unsupported update target"});
+                };
+                let Some(asset) = update::core_asset_name(&target, &tag) else {
+                    return serde_json::json!({"error":"unsupported core asset"});
+                };
+                let download_url =
+                    format!("https://github.com/{repo}/releases/download/{tag}/{asset}");
+                let archive = match tokio::process::Command::new("curl")
+                    .args(["-fsSL", "--noproxy", "*", "--max-time", "180", "-L"])
+                    .arg(&download_url)
+                    .output()
+                    .await
+                {
+                    Ok(o) if o.status.success() => o,
+                    Ok(_) => {
+                        return serde_json::json!({"error":format!("could not download {asset}")})
+                    }
+                    Err(e) => return serde_json::json!({"error":e.to_string()}),
+                };
+                let binary = update::core_binary_name(&target);
+                let extracted = extract_archive(&asset, &archive.stdout);
+                let Some(extracted) = extracted else {
+                    return serde_json::json!({"error":"could not extract core archive"});
+                };
+                let Some(path) = extracted.iter().find(|p| p.ends_with(binary.as_bytes())) else {
+                    return serde_json::json!({"error":format!("{binary} not found in archive")});
+                };
+                match update::write_bin(&bin_dir, binary, path) {
+                    Ok(_) => serde_json::json!({"ok":true,"target":target,"version":tag}),
+                    Err(e) => serde_json::json!({"error":e.to_string()}),
+                }
+            }
             "settings.get" => {
                 serde_json::to_value(&self.db.lock().await.settings).unwrap_or_default()
             }
@@ -1998,6 +2221,10 @@ impl Daemon {
         }
         drop(db);
         let _ = self.save().await;
+    }
+
+    fn core_available(&self, name: &str) -> bool {
+        resolve_bin(&self.bin_dir, name).is_file() || command_exists(name)
     }
 
     /// Sample the connected core's cumulative traffic and fold the deltas into

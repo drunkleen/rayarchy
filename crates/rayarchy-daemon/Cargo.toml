@@ -11,5 +11,6 @@ rayarchy-core = { path = "../rayarchy-core" }
 regex = "1"
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 tokio.workspace = true
 uuid.workspace = true
